@@ -2,12 +2,6 @@ using UnityEngine;
 
 public class Demo : MonoBehaviour
 {
-    [SerializeField] CountdownTimerUI timer1;
-
-    private void Start()
-    {
-        timer1 = FindObjectOfType<CountdownTimerUI>();
-        timer1.SetDuration(300).BeginWithDelay(3f);
     [SerializeField] private Timer2 timer1;
 
     [SerializeField] private int timerDuration = 15;
@@ -17,7 +11,14 @@ public class Demo : MonoBehaviour
     {
         timer1 = FindObjectOfType<Timer2>();
 
-        timer1.SetDuration(timerDuration)
-              .BeginWithDelay(startDelay);
+        if (timer1 != null)
+        {
+            timer1.SetDuration(timerDuration)
+                  .BeginWithDelay(startDelay);
+        }
+        else
+        {
+            Debug.LogError("Timer2 component not found!");
+        }
     }
 }
