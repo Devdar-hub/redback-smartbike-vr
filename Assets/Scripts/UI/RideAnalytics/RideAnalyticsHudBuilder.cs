@@ -36,6 +36,8 @@ public class RideAnalyticsHudBuilder : MonoBehaviour
             manager = root.GetComponent<RideAnalyticsManager>();
         if (manager == null)
             manager = root.AddComponent<RideAnalyticsManager>();
+        if (root.GetComponent<RideAnalyticsApiClient>() == null)
+            root.AddComponent<RideAnalyticsApiClient>();
 
         Canvas canvas = CreateCanvas(root.transform);
         GameObject dashboardObject = new GameObject("RideAnalyticsDashboard");
@@ -70,9 +72,13 @@ public class RideAnalyticsHudBuilder : MonoBehaviour
 
         CreateSpeedIcon(dashboardObject.transform);
         CreateMenuButton(dashboardObject.transform);
-        CreateBottomNav(dashboardObject.transform);
+        TMP_Text pauseNav = CreateBottomNav(dashboardObject.transform, dashboard);
+        GameObject mapPage = CreateMapPage(dashboardObject.transform, dashboard);
+        GameObject analyticsPage = CreateAnalyticsPage(dashboardObject.transform, dashboard, out TMP_Text analyticsSummary);
+        GameObject endRidePage = CreateEndRidePage(dashboardObject.transform, dashboard, out TMP_Text endRideSummary);
 
         dashboard.Bind(manager, currentSpeed, averageSpeed, maxSpeed, distance, duration, calories, heartRate, progress, gear, mission, checkpoints, personalBest, fill);
+        dashboard.BindPages(mapPage, analyticsPage, endRidePage, pauseNav, analyticsSummary, endRideSummary);
         return dashboard;
     }
 
@@ -263,23 +269,123 @@ public class RideAnalyticsHudBuilder : MonoBehaviour
         CreateLine(button.transform, "Bar3", new Vector2(50, 30), new Vector2(58, 12), 0f, White);
     }
 
-    private static void CreateBottomNav(Transform parent)
+    private static TMP_Text CreateBottomNav(Transform parent, RideAnalyticsDashboard dashboard)
     {
-        CreateNavText(parent, "Pause", new Vector2(-470, 0), Pink);
-        CreateNavText(parent, "Map", new Vector2(-230, 0), Blue);
-        CreateNavText(parent, "Analytics", new Vector2(95, 0), Yellow);
-        CreateNavText(parent, "End Ride", new Vector2(430, 0), Color.black);
+        TMP_Text pause = CreateNavText(parent, "Pause", new Vector2(-470, 0), Pink, dashboard.TogglePause);
+        CreateNavText(parent, "Map", new Vector2(-230, 0), Blue, dashboard.ShowMap);
+        CreateNavText(parent, "Analytics", new Vector2(95, 0), Yellow, dashboard.ShowAnalytics);
+        CreateNavText(parent, "End Ride", new Vector2(430, 0), Color.black, dashboard.EndRide);
+        return pause;
     }
 
-    private static void CreateNavText(Transform parent, string text, Vector2 offset, Color color)
+    private static TMP_Text CreateNavText(Transform parent, string text, Vector2 offset, Color color, UnityEngine.Events.UnityAction onClick)
     {
         TMP_Text label = CreateText(parent, "Nav" + text.Replace(" ", ""), text, 62, FontStyles.Bold, TextAnchor.UpperCenter, color);
+        Button button = label.gameObject.AddComponent<Button>();
+        button.targetGraphic = label;
+        button.onClick.AddListener(onClick);
+
         RectTransform rect = label.rectTransform;
         rect.anchorMin = new Vector2(0.5f, 0f);
         rect.anchorMax = new Vector2(0.5f, 0f);
         rect.pivot = new Vector2(0.5f, 0f);
         rect.anchoredPosition = offset + new Vector2(0, 12);
         rect.sizeDelta = new Vector2(300, 84);
+        return label;
+    }
+
+    private static GameObject CreateMapPage(Transform parent, RideAnalyticsDashboard dashboard)
+    {
+        GameObject page = CreatePage(parent, "MapPage");
+        CreateText(page.transform, "MapTitle", "Route Map", 58, FontStyles.Bold, TextAnchor.UpperCenter, White);
+        ConfigureAnchored(page.transform.Find("MapTitle").GetComponent<RectTransform>(), new Vector2(0, -82), TextAnchor.UpperCenter, new Vector2(700, 80));
+
+        GameObject mapPanel = CreatePanel(page.transform, "MapPanel", new Vector2(0, -190), new Vector2(920, 560), new Color(0.88f, 0.92f, 0.86f, 0.96f), TextAnchor.UpperCenter);
+        CreateLine(mapPanel.transform, "MapRoad1", new Vector2(165, 120), new Vector2(460, 12), 23f, new Color(0.72f, 0.72f, 0.68f));
+        CreateLine(mapPanel.transform, "MapRoad2", new Vector2(430, 285), new Vector2(600, 12), -18f, new Color(0.72f, 0.72f, 0.68f));
+        CreateLine(mapPanel.transform, "MapRoute1", new Vector2(230, 155), new Vector2(340, 16), 28f, Blue);
+        CreateLine(mapPanel.transform, "MapRoute2", new Vector2(455, 300), new Vector2(360, 16), -15f, Blue);
+        CreateMapMarker(mapPanel.transform, new Vector2(86, 82), Color.red);
+        CreateMapMarker(mapPanel.transform, new Vector2(790, 365), new Color(0.1f, 0.75f, 0.24f));
+
+        TMP_Text details = CreateText(page.transform, "MapDetails", "Current route\nCity ride loop\nCheckpoints update from distance progress", 34, FontStyles.Bold, TextAnchor.UpperCenter, White);
+        ConfigureAnchored(details.rectTransform, new Vector2(0, -775), TextAnchor.UpperCenter, new Vector2(920, 130));
+        CreatePageButton(page.transform, "Back to Ride", new Vector2(0, 70), new Vector2(360, 74), dashboard.ClosePages);
+        page.SetActive(false);
+        return page;
+    }
+
+    private static GameObject CreateAnalyticsPage(Transform parent, RideAnalyticsDashboard dashboard, out TMP_Text summary)
+    {
+        GameObject page = CreatePage(parent, "AnalyticsPage");
+        summary = CreateText(page.transform, "AnalyticsSummary", "Ride analytics", 44, FontStyles.Bold, TextAnchor.UpperCenter, White);
+        ConfigureAnchored(summary.rectTransform, new Vector2(0, -135), TextAnchor.UpperCenter, new Vector2(860, 480));
+
+        CreatePanel(page.transform, "SpeedBar", new Vector2(-330, -650), new Vector2(120, 230), Pink, TextAnchor.UpperCenter);
+        CreatePanel(page.transform, "DistanceBar", new Vector2(-110, -590), new Vector2(120, 290), Blue, TextAnchor.UpperCenter);
+        CreatePanel(page.transform, "CaloriesBar", new Vector2(110, -680), new Vector2(120, 200), Yellow, TextAnchor.UpperCenter);
+        CreatePanel(page.transform, "GearBar", new Vector2(330, -620), new Vector2(120, 260), MenuBlue, TextAnchor.UpperCenter);
+
+        CreatePageButton(page.transform, "Back to Ride", new Vector2(0, 70), new Vector2(360, 74), dashboard.ClosePages);
+        page.SetActive(false);
+        return page;
+    }
+
+    private static GameObject CreateEndRidePage(Transform parent, RideAnalyticsDashboard dashboard, out TMP_Text summary)
+    {
+        GameObject page = CreatePage(parent, "EndRidePage");
+        summary = CreateText(page.transform, "EndRideSummary", "Ride complete", 46, FontStyles.Bold, TextAnchor.UpperCenter, White);
+        ConfigureAnchored(summary.rectTransform, new Vector2(0, -150), TextAnchor.UpperCenter, new Vector2(920, 520));
+        CreatePageButton(page.transform, "View Ride", new Vector2(-210, 70), new Vector2(320, 74), dashboard.ClosePages);
+        CreatePageButton(page.transform, "End Screen", new Vector2(210, 70), new Vector2(320, 74), dashboard.ReturnToGarage);
+        page.SetActive(false);
+        return page;
+    }
+
+    private static GameObject CreatePage(Transform parent, string name)
+    {
+        GameObject page = new GameObject(name);
+        page.transform.SetParent(parent, false);
+        Image background = page.AddComponent<Image>();
+        background.color = new Color(0.02f, 0.06f, 0.09f, 0.92f);
+        Stretch(page.GetComponent<RectTransform>());
+        return page;
+    }
+
+    private static GameObject CreatePanel(Transform parent, string name, Vector2 position, Vector2 size, Color color, TextAnchor anchor)
+    {
+        GameObject panel = new GameObject(name);
+        panel.transform.SetParent(parent, false);
+        Image image = panel.AddComponent<Image>();
+        image.color = color;
+        ConfigureAnchored(panel.GetComponent<RectTransform>(), position, anchor, size);
+        return panel;
+    }
+
+    private static void CreatePageButton(Transform parent, string label, Vector2 position, Vector2 size, UnityEngine.Events.UnityAction onClick)
+    {
+        GameObject buttonObject = CreatePanel(parent, label.Replace(" ", "") + "Button", position, size, MenuBlue, TextAnchor.UpperCenter);
+        Button button = buttonObject.AddComponent<Button>();
+        button.targetGraphic = buttonObject.GetComponent<Image>();
+        button.onClick.AddListener(onClick);
+
+        TMP_Text text = CreateText(buttonObject.transform, "Label", label, 32, FontStyles.Bold, TextAnchor.UpperCenter, White);
+        Stretch(text.rectTransform);
+    }
+
+    private static void CreateMapMarker(Transform parent, Vector2 position, Color color)
+    {
+        GameObject marker = new GameObject("MapMarker");
+        marker.transform.SetParent(parent, false);
+        Image image = marker.AddComponent<Image>();
+        image.sprite = GetCircleSprite();
+        image.color = color;
+        RectTransform rect = marker.GetComponent<RectTransform>();
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.zero;
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = position;
+        rect.sizeDelta = new Vector2(34, 34);
     }
 
     private static void CreateLine(Transform parent, string name, Vector2 anchoredPosition, Vector2 size, float angle, Color color)

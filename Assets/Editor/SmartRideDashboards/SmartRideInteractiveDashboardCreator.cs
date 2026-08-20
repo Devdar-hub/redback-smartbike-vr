@@ -13,6 +13,7 @@ public static class SmartRideInteractiveDashboardCreator
     {
         GameObject root = new GameObject("SmartRideInteractiveDashboard");
         root.AddComponent<RideAnalyticsManager>();
+        root.AddComponent<RideAnalyticsApiClient>();
         SmartRideInteractiveDashboard dashboard = root.AddComponent<SmartRideInteractiveDashboard>();
         dashboard.Rebuild();
 
@@ -29,6 +30,7 @@ public static class SmartRideInteractiveDashboardCreator
 
         GameObject root = new GameObject("SmartRideInteractiveDashboard");
         root.AddComponent<RideAnalyticsManager>();
+        root.AddComponent<RideAnalyticsApiClient>();
         SmartRideInteractiveDashboard dashboard = root.AddComponent<SmartRideInteractiveDashboard>();
         dashboard.Rebuild();
 

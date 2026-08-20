@@ -10,7 +10,7 @@ using UnityEngine.Serialization;
 public class NetworkManagement : SimulationBehaviour, INetworkRunnerCallbacks
 {
     public string ActiveScene;
-    private NetworkRunner _runner;
+    private NetworkRunner networkRunner;
     // prefabs for spawning
     public GameObject NetworkPlayer;
 
@@ -63,11 +63,11 @@ public class NetworkManagement : SimulationBehaviour, INetworkRunnerCallbacks
         _players = new Dictionary<PlayerRef, NetworkObject>();
         _networkItems = new List<NetworkObject>();
 
-        _runner = gameObject.AddComponent<NetworkRunner>();
-        _runner.ProvideInput = true;
+        networkRunner = gameObject.AddComponent<NetworkRunner>();
+        networkRunner.ProvideInput = true;
 
-        _runner.AddCallbacks(this);
-        _runner.StartGame(new StartGameArgs
+        networkRunner.AddCallbacks(this);
+        networkRunner.StartGame(new StartGameArgs
         {
             GameMode = GameMode.Shared,
             SessionName = ActiveScene,
@@ -79,8 +79,11 @@ public class NetworkManagement : SimulationBehaviour, INetworkRunnerCallbacks
 
     public void Disconnect()
     {
-        _runner.Shutdown();
-        _runner.RemoveCallbacks(this);
+        if (networkRunner == null)
+            return;
+
+        networkRunner.RemoveCallbacks(this);
+        networkRunner.Shutdown();
     }
 
     void OnApplicationQuit()
@@ -93,7 +96,7 @@ public class NetworkManagement : SimulationBehaviour, INetworkRunnerCallbacks
         if (player == runner.LocalPlayer)
         {
             // set the spawn location for the player
-            SpawnedPlayer = _runner.Spawn(NetworkPlayer, SpawnTarget.position, SpawnTarget.rotation, player);
+            SpawnedPlayer = networkRunner.Spawn(NetworkPlayer, SpawnTarget.position, SpawnTarget.rotation, player);
             SpawnedPlayer.name = $"Player_{player.PlayerId}";
             // hide the loading scene
             MapLoader.UnloadScene("LoadingScene");

@@ -2,11 +2,13 @@ using System;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using Redback.UI;
 
 public class RideAnalyticsDashboard : MonoBehaviour
 {
     [Header("Data")]
     [SerializeField] private RideAnalyticsManager analyticsManager;
+    [SerializeField] private RideAnalyticsApiClient apiClient;
 
     [Header("Metric Labels")]
     [SerializeField] private TMP_Text currentSpeedText;
@@ -25,10 +27,22 @@ public class RideAnalyticsDashboard : MonoBehaviour
     [Header("Progress")]
     [SerializeField] private Image distanceProgressFill;
 
+    [Header("HUD Pages")]
+    [SerializeField] private GameObject mapPage;
+    [SerializeField] private GameObject analyticsPage;
+    [SerializeField] private GameObject endRidePage;
+    [SerializeField] private TMP_Text pauseButtonText;
+    [SerializeField] private TMP_Text analyticsSummaryText;
+    [SerializeField] private TMP_Text endRideSummaryText;
+
+    private bool pausedByHud;
+
     private void Awake()
     {
         if (analyticsManager == null)
             analyticsManager = RideAnalyticsManager.Instance;
+        if (apiClient == null)
+            apiClient = GetComponentInParent<RideAnalyticsApiClient>();
     }
 
     private void Update()
@@ -74,6 +88,23 @@ public class RideAnalyticsDashboard : MonoBehaviour
         distanceProgressFill = progressFill;
     }
 
+    public void BindPages(
+        GameObject map,
+        GameObject analytics,
+        GameObject endRide,
+        TMP_Text pauseLabel,
+        TMP_Text analyticsSummary,
+        TMP_Text endRideSummary)
+    {
+        mapPage = map;
+        analyticsPage = analytics;
+        endRidePage = endRide;
+        pauseButtonText = pauseLabel;
+        analyticsSummaryText = analyticsSummary;
+        endRideSummaryText = endRideSummary;
+        HidePages();
+    }
+
     private void Render(RideAnalyticsSnapshot snapshot)
     {
         SetText(currentSpeedText, string.Format("{0:0.0} km/h", snapshot.currentSpeedKmh));
@@ -91,6 +122,8 @@ public class RideAnalyticsDashboard : MonoBehaviour
 
         if (distanceProgressFill != null)
             distanceProgressFill.fillAmount = snapshot.DistanceProgress;
+
+        SetText(analyticsSummaryText, BuildAnalyticsSummary(snapshot));
     }
 
     private void SetText(TMP_Text target, string value)
@@ -103,5 +136,135 @@ public class RideAnalyticsDashboard : MonoBehaviour
     {
         TimeSpan time = TimeSpan.FromSeconds(Mathf.Max(0f, seconds));
         return string.Format("{0:00}:{1:00}:{2:00}", (int)time.TotalHours, time.Minutes, time.Seconds);
+    }
+
+    public void TogglePause()
+    {
+        if (analyticsManager == null)
+            analyticsManager = RideAnalyticsManager.Instance;
+        if (analyticsManager == null)
+            return;
+
+        if (pausedByHud)
+        {
+            analyticsManager.ResumeRide();
+            Time.timeScale = 1f;
+        }
+        else
+        {
+            analyticsManager.PauseRide();
+            Time.timeScale = 0f;
+        }
+
+        pausedByHud = !pausedByHud;
+        SetText(pauseButtonText, pausedByHud ? "Resume" : "Pause");
+        Debug.Log(pausedByHud ? "Ride Analytics HUD paused ride stats." : "Ride Analytics HUD resumed ride stats.");
+    }
+
+    public void ShowMap()
+    {
+        HidePages();
+        if (mapPage != null)
+        {
+            mapPage.SetActive(true);
+            return;
+        }
+
+        DashboardController controller = FindObjectOfType<DashboardController>();
+        if (controller != null)
+        {
+            controller.ShowMapDashboardPanel();
+            return;
+        }
+
+        Debug.Log("Ride Analytics HUD Map button clicked. No DashboardController map panel was found in this scene.");
+    }
+
+    public void ShowAnalytics()
+    {
+        HidePages();
+        if (analyticsPage != null)
+        {
+            analyticsPage.SetActive(true);
+            return;
+        }
+
+        DashboardController controller = FindObjectOfType<DashboardController>();
+        if (controller != null)
+        {
+            controller.ShowTripDetailsPanel();
+            return;
+        }
+
+        Debug.Log("Ride Analytics HUD Analytics button clicked. No DashboardController analytics panel was found in this scene.");
+    }
+
+    public void EndRide()
+    {
+        if (pausedByHud)
+        {
+            pausedByHud = false;
+            Time.timeScale = 1f;
+            SetText(pauseButtonText, "Pause");
+        }
+
+        RideAnalyticsSnapshot snapshot = analyticsManager != null ? analyticsManager.EndRide() : null;
+
+        if (apiClient == null)
+            apiClient = GetComponentInParent<RideAnalyticsApiClient>();
+
+        if (apiClient != null)
+            apiClient.EndBackendRide();
+
+        HidePages();
+        if (endRidePage != null)
+            endRidePage.SetActive(true);
+        if (snapshot != null)
+            SetText(endRideSummaryText, BuildEndRideSummary(snapshot));
+        Time.timeScale = 0f;
+
+        Debug.Log("Ride Analytics HUD ended ride.");
+    }
+
+    public void ReturnToGarage()
+    {
+        Time.timeScale = 1f;
+        MapLoader.LoadScene("GarageScene");
+    }
+
+    public void ClosePages()
+    {
+        HidePages();
+    }
+
+    private void HidePages()
+    {
+        if (mapPage != null)
+            mapPage.SetActive(false);
+        if (analyticsPage != null)
+            analyticsPage.SetActive(false);
+        if (endRidePage != null)
+            endRidePage.SetActive(false);
+    }
+
+    private string BuildAnalyticsSummary(RideAnalyticsSnapshot snapshot)
+    {
+        return "Ride analytics\n\n"
+            + "Speed: " + snapshot.currentSpeedKmh.ToString("0.0") + " km/h\n"
+            + "Average: " + snapshot.averageSpeedKmh.ToString("0.0") + " km/h\n"
+            + "Max: " + snapshot.maxSpeedKmh.ToString("0.0") + " km/h\n"
+            + "Distance: " + snapshot.distanceKm.ToString("0.00") + " km\n"
+            + "Calories: " + snapshot.caloriesKcal.ToString("0") + " kcal\n"
+            + "Gear: " + (snapshot.currentGear > 0 ? snapshot.currentGear.ToString() : "0");
+    }
+
+    private string BuildEndRideSummary(RideAnalyticsSnapshot snapshot)
+    {
+        return "Ride complete\n\n"
+            + "Time: " + FormatTime(snapshot.rideTimeSeconds) + "\n"
+            + "Distance: " + snapshot.distanceKm.ToString("0.00") + " km\n"
+            + "Average speed: " + snapshot.averageSpeedKmh.ToString("0.0") + " km/h\n"
+            + "Max speed: " + snapshot.maxSpeedKmh.ToString("0.0") + " km/h\n"
+            + "Calories: " + snapshot.caloriesKcal.ToString("0") + " kcal";
     }
 }
