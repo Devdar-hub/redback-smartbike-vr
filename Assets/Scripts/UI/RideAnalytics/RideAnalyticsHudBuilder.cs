@@ -9,12 +9,18 @@ public class RideAnalyticsHudBuilder : MonoBehaviour
     [SerializeField] private bool showAdvancedCenterStats = false;
 
     private static readonly Color White = Color.white;
-    private static readonly Color Pink = new Color(0.92f, 0.02f, 0.28f);
-    private static readonly Color Blue = new Color(0.09f, 0.27f, 0.66f);
-    private static readonly Color Yellow = new Color(1f, 0.92f, 0.02f);
-    private static readonly Color MenuBlue = new Color(0.22f, 0.55f, 0.82f, 0.95f);
-    private static readonly Color ProgressTrack = new Color(1f, 1f, 1f, 0.25f);
-    private static readonly Color ProgressFill = new Color(0.95f, 0.95f, 0.12f, 0.95f);
+    private static readonly Color HudPanel = new Color(0.02f, 0.05f, 0.08f, 0.74f);
+    private static readonly Color HudPanelStrong = new Color(0.015f, 0.03f, 0.05f, 0.9f);
+    private static readonly Color TextMuted = new Color(0.78f, 0.87f, 0.95f, 1f);
+    private static readonly Color AccentCyan = new Color(0.25f, 0.78f, 0.95f, 1f);
+    private static readonly Color AccentGreen = new Color(0.2f, 0.86f, 0.45f, 1f);
+    private static readonly Color AccentAmber = new Color(1f, 0.75f, 0.22f, 1f);
+    private static readonly Color AccentRed = new Color(1f, 0.34f, 0.34f, 1f);
+    private static readonly Color MenuBlue = new Color(0.06f, 0.18f, 0.32f, 0.96f);
+    private static readonly Color ProgressTrack = new Color(0.85f, 0.93f, 1f, 0.28f);
+    private static readonly Color ProgressFill = new Color(0.2f, 0.86f, 0.45f, 0.98f);
+    private static readonly Color Scrim = new Color(0.005f, 0.012f, 0.02f, 0.62f);
+    private static readonly Color Stroke = new Color(0.58f, 0.82f, 1f, 0.24f);
     private static Sprite circleSprite;
 
     private void Awake()
@@ -46,15 +52,18 @@ public class RideAnalyticsHudBuilder : MonoBehaviour
 
         RideAnalyticsDashboard dashboard = dashboardObject.AddComponent<RideAnalyticsDashboard>();
 
-        TMP_Text currentSpeed = CreateMetric(dashboardObject.transform, "Current Speed", "39.4 km/h", new Vector2(20, -12), TextAnchor.UpperLeft);
-        TMP_Text averageSpeed = CreateMetric(dashboardObject.transform, "Average Speed", "28.4 km/h", new Vector2(20, -250), TextAnchor.UpperLeft);
-        TMP_Text maxSpeed = CreateMetric(dashboardObject.transform, "Max Speed", "45.4 km/h", new Vector2(20, -488), TextAnchor.UpperLeft);
-        TMP_Text distance = CreateMetric(dashboardObject.transform, "Distance", "12.95 km", new Vector2(20, -724), TextAnchor.UpperLeft);
+        CreateScreenGradient(dashboardObject.transform);
+        CreateStatusHeader(dashboardObject.transform);
 
-        TMP_Text duration = CreateMetric(dashboardObject.transform, "Ride duration", "00:30:49", new Vector2(-20, -12), TextAnchor.UpperRight);
-        TMP_Text calories = CreateMetric(dashboardObject.transform, "Calories burned", "220 k cal", new Vector2(-20, -250), TextAnchor.UpperRight);
-        TMP_Text heartRate = CreateMetric(dashboardObject.transform, "Heart Rate", "132 bpm", new Vector2(-20, -488), TextAnchor.UpperRight);
-        TMP_Text progress = CreateMetric(dashboardObject.transform, "Distance Progress", "62%", new Vector2(-20, -724), TextAnchor.UpperRight);
+        TMP_Text currentSpeed = CreateMetric(dashboardObject.transform, "Current Speed", "0.0 km/h", new Vector2(28, -72), TextAnchor.UpperLeft, AccentCyan);
+        TMP_Text averageSpeed = CreateMetric(dashboardObject.transform, "Average Speed", "0.0 km/h", new Vector2(28, -250), TextAnchor.UpperLeft, White);
+        TMP_Text maxSpeed = CreateMetric(dashboardObject.transform, "Max Speed", "0.0 km/h", new Vector2(28, -428), TextAnchor.UpperLeft, White);
+        TMP_Text distance = CreateMetric(dashboardObject.transform, "Distance", "0.00 km", new Vector2(28, -606), TextAnchor.UpperLeft, AccentGreen);
+
+        TMP_Text duration = CreateMetric(dashboardObject.transform, "Ride Duration", "00:00:00", new Vector2(-28, -72), TextAnchor.UpperRight, AccentAmber);
+        TMP_Text calories = CreateMetric(dashboardObject.transform, "Calories", "0 kcal", new Vector2(-28, -250), TextAnchor.UpperRight, White);
+        TMP_Text heartRate = CreateMetric(dashboardObject.transform, "Heart Rate", "0 bpm", new Vector2(-28, -428), TextAnchor.UpperRight, AccentRed);
+        TMP_Text progress = CreateMetric(dashboardObject.transform, "Distance Progress", "0%", new Vector2(-28, -606), TextAnchor.UpperRight, AccentGreen);
 
         TMP_Text mission = null;
         TMP_Text checkpoints = null;
@@ -73,12 +82,13 @@ public class RideAnalyticsHudBuilder : MonoBehaviour
         CreateSpeedIcon(dashboardObject.transform);
         CreateMenuButton(dashboardObject.transform);
         TMP_Text pauseNav = CreateBottomNav(dashboardObject.transform, dashboard);
+        GameObject pausePage = CreatePausePage(dashboardObject.transform, dashboard, out TMP_Text pauseSummary);
         GameObject mapPage = CreateMapPage(dashboardObject.transform, dashboard);
         GameObject analyticsPage = CreateAnalyticsPage(dashboardObject.transform, dashboard, out TMP_Text analyticsSummary);
         GameObject endRidePage = CreateEndRidePage(dashboardObject.transform, dashboard, out TMP_Text endRideSummary);
 
         dashboard.Bind(manager, currentSpeed, averageSpeed, maxSpeed, distance, duration, calories, heartRate, progress, gear, mission, checkpoints, personalBest, fill);
-        dashboard.BindPages(mapPage, analyticsPage, endRidePage, pauseNav, analyticsSummary, endRideSummary);
+        dashboard.BindPages(pausePage, mapPage, analyticsPage, endRidePage, pauseNav, pauseSummary, analyticsSummary, endRideSummary);
         return dashboard;
     }
 
@@ -102,23 +112,27 @@ public class RideAnalyticsHudBuilder : MonoBehaviour
         return canvas;
     }
 
-    private static TMP_Text CreateMetric(Transform parent, string title, string value, Vector2 offset, TextAnchor alignment)
+    private static TMP_Text CreateMetric(Transform parent, string title, string value, Vector2 offset, TextAnchor alignment, Color valueColor)
     {
-        TMP_Text titleText = CreateText(parent, title + "Title", title, 58, FontStyles.Bold, alignment, White);
-        TMP_Text valueText = CreateText(parent, title + "Value", value, 56, FontStyles.Bold, alignment, White);
+        GameObject panel = CreatePanel(parent, title.Replace(" ", "") + "MetricPanel", offset, new Vector2(448, 148), HudPanel, alignment);
+        AddOutline(panel, Stroke, new Vector2(1.4f, -1.4f));
 
-        ConfigureAnchored(titleText.rectTransform, offset, alignment, new Vector2(620, 76));
-        ConfigureAnchored(valueText.rectTransform, offset + new Vector2(0, -68), alignment, new Vector2(620, 76));
+        TMP_Text titleText = CreateText(panel.transform, title + "Title", title.ToUpperInvariant(), 22, FontStyles.Bold, alignment, TextMuted);
+        TMP_Text valueText = CreateText(panel.transform, title + "Value", value, 44, FontStyles.Bold, alignment, valueColor);
+
+        ConfigureChild(titleText.rectTransform, new Vector2(24, -20), alignment, new Vector2(400, 32));
+        ConfigureChild(valueText.rectTransform, new Vector2(24, -60), alignment, new Vector2(400, 68));
         return valueText;
     }
 
     private static TMP_Text CreateSmallMetric(Transform parent, string title, string value, Vector2 offset, TextAnchor alignment)
     {
-        TMP_Text titleText = CreateText(parent, title + "Title", title, 30, FontStyles.Bold, alignment, White);
-        TMP_Text valueText = CreateText(parent, title + "Value", value, 34, FontStyles.Bold, alignment, White);
+        GameObject panel = CreatePanel(parent, title.Replace(" ", "") + "SmallPanel", offset, new Vector2(330, 82), HudPanel, alignment);
+        TMP_Text titleText = CreateText(panel.transform, title + "Title", title, 19, FontStyles.Bold, alignment, TextMuted);
+        TMP_Text valueText = CreateText(panel.transform, title + "Value", value, 24, FontStyles.Bold, alignment, White);
 
-        ConfigureAnchored(titleText.rectTransform, offset, alignment, new Vector2(360, 44));
-        ConfigureAnchored(valueText.rectTransform, offset + new Vector2(0, -40), alignment, new Vector2(360, 50));
+        ConfigureChild(titleText.rectTransform, new Vector2(18, -10), alignment, new Vector2(294, 28));
+        ConfigureChild(valueText.rectTransform, new Vector2(18, -42), alignment, new Vector2(294, 32));
         return valueText;
     }
 
@@ -134,9 +148,14 @@ public class RideAnalyticsHudBuilder : MonoBehaviour
         label.color = color;
         label.alignment = ToTextAlignment(anchor);
         label.enableWordWrapping = false;
+        label.overflowMode = TextOverflowModes.Ellipsis;
+        label.enableAutoSizing = true;
+        label.fontSizeMax = size;
+        label.fontSizeMin = Mathf.Max(14f, size * 0.62f);
+        label.raycastTarget = false;
 
         Shadow shadow = textObject.AddComponent<Shadow>();
-        shadow.effectColor = new Color(0f, 0f, 0f, 0.35f);
+        shadow.effectColor = new Color(0f, 0f, 0f, 0.72f);
         shadow.effectDistance = new Vector2(2f, -2f);
 
         return label;
@@ -176,6 +195,30 @@ public class RideAnalyticsHudBuilder : MonoBehaviour
         rect.sizeDelta = size;
     }
 
+    private static void ConfigureChild(RectTransform rect, Vector2 inset, TextAnchor alignment, Vector2 size)
+    {
+        rect.anchorMin = new Vector2(0f, 1f);
+        rect.anchorMax = new Vector2(0f, 1f);
+        rect.pivot = new Vector2(0f, 1f);
+        rect.anchoredPosition = inset;
+        rect.sizeDelta = size;
+
+        if (alignment == TextAnchor.UpperRight)
+        {
+            rect.anchorMin = new Vector2(1f, 1f);
+            rect.anchorMax = new Vector2(1f, 1f);
+            rect.pivot = new Vector2(1f, 1f);
+            rect.anchoredPosition = new Vector2(-inset.x, inset.y);
+        }
+        else if (alignment == TextAnchor.UpperCenter)
+        {
+            rect.anchorMin = new Vector2(0.5f, 1f);
+            rect.anchorMax = new Vector2(0.5f, 1f);
+            rect.pivot = new Vector2(0.5f, 1f);
+            rect.anchoredPosition = new Vector2(0f, inset.y);
+        }
+    }
+
     private static Image CreateProgressBar(Transform parent)
     {
         GameObject trackObject = new GameObject("DistanceProgressTrack");
@@ -186,8 +229,8 @@ public class RideAnalyticsHudBuilder : MonoBehaviour
         trackRect.anchorMin = new Vector2(1f, 1f);
         trackRect.anchorMax = new Vector2(1f, 1f);
         trackRect.pivot = new Vector2(1f, 1f);
-        trackRect.anchoredPosition = new Vector2(-20, -842);
-        trackRect.sizeDelta = new Vector2(520, 18);
+        trackRect.anchoredPosition = new Vector2(-52, -728);
+        trackRect.sizeDelta = new Vector2(380, 20);
 
         GameObject fillObject = new GameObject("DistanceProgressFill");
         fillObject.transform.SetParent(trackObject.transform, false);
@@ -206,18 +249,19 @@ public class RideAnalyticsHudBuilder : MonoBehaviour
         GameObject panelObject = new GameObject("GearPanel");
         panelObject.transform.SetParent(parent, false);
         Image panel = panelObject.AddComponent<Image>();
-        panel.color = new Color(0.02f, 0.02f, 0.025f, 0.92f);
+        panel.color = HudPanelStrong;
         RectTransform rect = panelObject.GetComponent<RectTransform>();
         rect.anchorMin = new Vector2(0.5f, 0f);
         rect.anchorMax = new Vector2(0.5f, 0f);
         rect.pivot = new Vector2(0.5f, 0f);
-        rect.anchoredPosition = new Vector2(0f, 102f);
-        rect.sizeDelta = new Vector2(96f, 140f);
+        rect.anchoredPosition = new Vector2(0f, 118f);
+        rect.sizeDelta = new Vector2(110f, 150f);
+        AddOutline(panelObject, new Color(0.25f, 0.78f, 0.95f, 0.32f), new Vector2(2f, -2f));
 
-        TMP_Text label = CreateText(panelObject.transform, "GearLabel", "GEAR", 18, FontStyles.Normal, TextAnchor.UpperCenter, new Color(0.75f, 0.75f, 0.75f));
+        TMP_Text label = CreateText(panelObject.transform, "GearLabel", "GEAR", 18, FontStyles.Bold, TextAnchor.UpperCenter, TextMuted);
         ConfigureAnchored(label.rectTransform, new Vector2(0, -10), TextAnchor.UpperCenter, new Vector2(90, 28));
 
-        TMP_Text value = CreateText(panelObject.transform, "GearValue", "6", 82, FontStyles.Bold, TextAnchor.UpperCenter, new Color(0.1f, 0.16f, 1f));
+        TMP_Text value = CreateText(panelObject.transform, "GearValue", "6", 82, FontStyles.Bold, TextAnchor.UpperCenter, AccentCyan);
         ConfigureAnchored(value.rectTransform, new Vector2(0, -42), TextAnchor.UpperCenter, new Vector2(90, 92));
         return value;
     }
@@ -230,19 +274,19 @@ public class RideAnalyticsHudBuilder : MonoBehaviour
         rect.anchorMin = new Vector2(0f, 1f);
         rect.anchorMax = new Vector2(0f, 1f);
         rect.pivot = new Vector2(0f, 1f);
-        rect.anchoredPosition = new Vector2(515, -33);
-        rect.sizeDelta = new Vector2(108, 108);
+        rect.anchoredPosition = new Vector2(466, -40);
+        rect.sizeDelta = new Vector2(92, 92);
 
         GameObject circle = new GameObject("Dial");
         circle.transform.SetParent(iconRoot.transform, false);
         Image circleImage = circle.AddComponent<Image>();
         circleImage.sprite = GetCircleSprite();
-        circleImage.color = new Color(0f, 0.48f, 0.68f, 0.92f);
+        circleImage.color = new Color(0.02f, 0.44f, 0.62f, 0.96f);
         RectTransform circleRect = circle.GetComponent<RectTransform>();
         circleRect.anchorMin = new Vector2(0.5f, 0.5f);
         circleRect.anchorMax = new Vector2(0.5f, 0.5f);
         circleRect.pivot = new Vector2(0.5f, 0.5f);
-        circleRect.sizeDelta = new Vector2(60, 60);
+        circleRect.sizeDelta = new Vector2(56, 56);
 
         CreateLine(iconRoot.transform, "Needle", new Vector2(54, 54), new Vector2(8, 44), -42f, White);
         CreateLine(iconRoot.transform, "SpeedLine1", new Vector2(8, 48), new Vector2(28, 5), 0f, new Color(0f, 0.54f, 0.45f));
@@ -262,7 +306,7 @@ public class RideAnalyticsHudBuilder : MonoBehaviour
         rect.anchorMax = new Vector2(1f, 1f);
         rect.pivot = new Vector2(1f, 1f);
         rect.anchoredPosition = new Vector2(-36, -34);
-        rect.sizeDelta = new Vector2(100, 100);
+        rect.sizeDelta = new Vector2(92, 92);
 
         CreateLine(button.transform, "Bar1", new Vector2(50, 70), new Vector2(58, 12), 0f, White);
         CreateLine(button.transform, "Bar2", new Vector2(50, 50), new Vector2(58, 12), 0f, White);
@@ -271,27 +315,46 @@ public class RideAnalyticsHudBuilder : MonoBehaviour
 
     private static TMP_Text CreateBottomNav(Transform parent, RideAnalyticsDashboard dashboard)
     {
-        TMP_Text pause = CreateNavText(parent, "Pause", new Vector2(-470, 0), Pink, dashboard.TogglePause);
-        CreateNavText(parent, "Map", new Vector2(-230, 0), Blue, dashboard.ShowMap);
-        CreateNavText(parent, "Analytics", new Vector2(95, 0), Yellow, dashboard.ShowAnalytics);
-        CreateNavText(parent, "End Ride", new Vector2(430, 0), Color.black, dashboard.EndRide);
+        TMP_Text pause = CreateNavText(parent, "Pause", new Vector2(-480, 18), AccentAmber, dashboard.TogglePause);
+        CreateNavText(parent, "Map", new Vector2(-235, 18), AccentCyan, dashboard.ShowMap);
+        CreateNavText(parent, "Analytics", new Vector2(70, 18), AccentGreen, dashboard.ShowAnalytics);
+        CreateNavText(parent, "End Ride", new Vector2(405, 18), AccentRed, dashboard.EndRide);
         return pause;
     }
 
     private static TMP_Text CreateNavText(Transform parent, string text, Vector2 offset, Color color, UnityEngine.Events.UnityAction onClick)
     {
-        TMP_Text label = CreateText(parent, "Nav" + text.Replace(" ", ""), text, 62, FontStyles.Bold, TextAnchor.UpperCenter, color);
-        Button button = label.gameObject.AddComponent<Button>();
-        button.targetGraphic = label;
-        button.onClick.AddListener(onClick);
+        GameObject buttonObject = CreatePanel(parent, "Nav" + text.Replace(" ", "") + "Button", offset, new Vector2(text == "Analytics" ? 270 : 220, 76), HudPanelStrong, TextAnchor.UpperCenter);
+        AddOutline(buttonObject, new Color(1f, 1f, 1f, 0.12f), new Vector2(1f, -1f));
 
+        Button button = buttonObject.AddComponent<Button>();
+        button.targetGraphic = buttonObject.GetComponent<Image>();
+        button.onClick.AddListener(onClick);
+        ConfigureButtonColors(button, color);
+
+        TMP_Text label = CreateText(buttonObject.transform, "Label", text, 34, FontStyles.Bold, TextAnchor.UpperCenter, color);
         RectTransform rect = label.rectTransform;
-        rect.anchorMin = new Vector2(0.5f, 0f);
-        rect.anchorMax = new Vector2(0.5f, 0f);
-        rect.pivot = new Vector2(0.5f, 0f);
-        rect.anchoredPosition = offset + new Vector2(0, 12);
-        rect.sizeDelta = new Vector2(300, 84);
+        Stretch(rect);
         return label;
+    }
+
+    private static GameObject CreatePausePage(Transform parent, RideAnalyticsDashboard dashboard, out TMP_Text summary)
+    {
+        GameObject page = CreatePage(parent, "PausePage");
+        CreateText(page.transform, "PauseTitle", "Ride Paused", 58, FontStyles.Bold, TextAnchor.UpperCenter, White);
+        ConfigureAnchored(page.transform.Find("PauseTitle").GetComponent<RectTransform>(), new Vector2(0, -112), TextAnchor.UpperCenter, new Vector2(820, 80));
+
+        GameObject panel = CreatePanel(page.transform, "PauseSummaryPanel", new Vector2(0, -245), new Vector2(760, 370), HudPanelStrong, TextAnchor.UpperCenter);
+        AddOutline(panel, Stroke, new Vector2(1.5f, -1.5f));
+
+        summary = CreateText(panel.transform, "PauseSummary", "Ride paused", 38, FontStyles.Bold, TextAnchor.UpperCenter, White);
+        Stretch(summary.rectTransform);
+        summary.rectTransform.offsetMin = new Vector2(44, 34);
+        summary.rectTransform.offsetMax = new Vector2(-44, -34);
+
+        CreatePageButton(page.transform, "Back to Ride", new Vector2(0, 100), new Vector2(360, 74), dashboard.ClosePages);
+        page.SetActive(false);
+        return page;
     }
 
     private static GameObject CreateMapPage(Transform parent, RideAnalyticsDashboard dashboard)
@@ -303,8 +366,8 @@ public class RideAnalyticsHudBuilder : MonoBehaviour
         GameObject mapPanel = CreatePanel(page.transform, "MapPanel", new Vector2(0, -190), new Vector2(920, 560), new Color(0.88f, 0.92f, 0.86f, 0.96f), TextAnchor.UpperCenter);
         CreateLine(mapPanel.transform, "MapRoad1", new Vector2(165, 120), new Vector2(460, 12), 23f, new Color(0.72f, 0.72f, 0.68f));
         CreateLine(mapPanel.transform, "MapRoad2", new Vector2(430, 285), new Vector2(600, 12), -18f, new Color(0.72f, 0.72f, 0.68f));
-        CreateLine(mapPanel.transform, "MapRoute1", new Vector2(230, 155), new Vector2(340, 16), 28f, Blue);
-        CreateLine(mapPanel.transform, "MapRoute2", new Vector2(455, 300), new Vector2(360, 16), -15f, Blue);
+        CreateLine(mapPanel.transform, "MapRoute1", new Vector2(230, 155), new Vector2(340, 16), 28f, AccentCyan);
+        CreateLine(mapPanel.transform, "MapRoute2", new Vector2(455, 300), new Vector2(360, 16), -15f, AccentCyan);
         CreateMapMarker(mapPanel.transform, new Vector2(86, 82), Color.red);
         CreateMapMarker(mapPanel.transform, new Vector2(790, 365), new Color(0.1f, 0.75f, 0.24f));
 
@@ -321,9 +384,9 @@ public class RideAnalyticsHudBuilder : MonoBehaviour
         summary = CreateText(page.transform, "AnalyticsSummary", "Ride analytics", 44, FontStyles.Bold, TextAnchor.UpperCenter, White);
         ConfigureAnchored(summary.rectTransform, new Vector2(0, -135), TextAnchor.UpperCenter, new Vector2(860, 480));
 
-        CreatePanel(page.transform, "SpeedBar", new Vector2(-330, -650), new Vector2(120, 230), Pink, TextAnchor.UpperCenter);
-        CreatePanel(page.transform, "DistanceBar", new Vector2(-110, -590), new Vector2(120, 290), Blue, TextAnchor.UpperCenter);
-        CreatePanel(page.transform, "CaloriesBar", new Vector2(110, -680), new Vector2(120, 200), Yellow, TextAnchor.UpperCenter);
+        CreatePanel(page.transform, "SpeedBar", new Vector2(-330, -650), new Vector2(120, 230), AccentRed, TextAnchor.UpperCenter);
+        CreatePanel(page.transform, "DistanceBar", new Vector2(-110, -590), new Vector2(120, 290), AccentCyan, TextAnchor.UpperCenter);
+        CreatePanel(page.transform, "CaloriesBar", new Vector2(110, -680), new Vector2(120, 200), AccentAmber, TextAnchor.UpperCenter);
         CreatePanel(page.transform, "GearBar", new Vector2(330, -620), new Vector2(120, 260), MenuBlue, TextAnchor.UpperCenter);
 
         CreatePageButton(page.transform, "Back to Ride", new Vector2(0, 70), new Vector2(360, 74), dashboard.ClosePages);
@@ -368,6 +431,7 @@ public class RideAnalyticsHudBuilder : MonoBehaviour
         Button button = buttonObject.AddComponent<Button>();
         button.targetGraphic = buttonObject.GetComponent<Image>();
         button.onClick.AddListener(onClick);
+        ConfigureButtonColors(button, AccentCyan);
 
         TMP_Text text = CreateText(buttonObject.transform, "Label", label, 32, FontStyles.Bold, TextAnchor.UpperCenter, White);
         Stretch(text.rectTransform);
@@ -401,6 +465,61 @@ public class RideAnalyticsHudBuilder : MonoBehaviour
         rect.anchoredPosition = anchoredPosition;
         rect.sizeDelta = size;
         rect.localRotation = Quaternion.Euler(0f, 0f, angle);
+    }
+
+    private static void CreateScreenGradient(Transform parent)
+    {
+        CreateBand(parent, "TopReadabilityScrim", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, 0f), new Vector2(0f, 170f), Scrim);
+        CreateBand(parent, "BottomCommandScrim", new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 0f), new Vector2(0f, 140f), new Color(0.005f, 0.012f, 0.02f, 0.72f));
+        CreateBand(parent, "LeftMetricScrim", new Vector2(0f, 0.12f), new Vector2(0f, 0.94f), new Vector2(0f, 0.5f), new Vector2(0f, 0f), new Vector2(500f, 0f), new Color(0.005f, 0.012f, 0.02f, 0.36f));
+        CreateBand(parent, "RightMetricScrim", new Vector2(1f, 0.12f), new Vector2(1f, 0.94f), new Vector2(1f, 0.5f), new Vector2(0f, 0f), new Vector2(500f, 0f), new Color(0.005f, 0.012f, 0.02f, 0.36f));
+    }
+
+    private static void CreateStatusHeader(Transform parent)
+    {
+        GameObject header = CreatePanel(parent, "RideAnalyticsHeader", new Vector2(0f, -28f), new Vector2(520f, 72f), HudPanelStrong, TextAnchor.UpperCenter);
+        AddOutline(header, Stroke, new Vector2(1.5f, -1.5f));
+
+        TMP_Text title = CreateText(header.transform, "HeaderTitle", "RIDE ANALYTICS", 26, FontStyles.Bold, TextAnchor.UpperCenter, White);
+        ConfigureChild(title.rectTransform, new Vector2(0, -11), TextAnchor.UpperCenter, new Vector2(450, 30));
+
+        TMP_Text status = CreateText(header.transform, "HeaderStatus", "Movement + MQTT ready", 17, FontStyles.Bold, TextAnchor.UpperCenter, AccentGreen);
+        ConfigureChild(status.rectTransform, new Vector2(0, -42), TextAnchor.UpperCenter, new Vector2(450, 24));
+    }
+
+    private static void CreateBand(Transform parent, string name, Vector2 anchorMin, Vector2 anchorMax, Vector2 pivot, Vector2 position, Vector2 size, Color color)
+    {
+        GameObject band = new GameObject(name);
+        band.transform.SetParent(parent, false);
+        Image image = band.AddComponent<Image>();
+        image.color = color;
+
+        RectTransform rect = band.GetComponent<RectTransform>();
+        rect.anchorMin = anchorMin;
+        rect.anchorMax = anchorMax;
+        rect.pivot = pivot;
+        rect.anchoredPosition = position;
+        rect.sizeDelta = size;
+    }
+
+    private static void AddOutline(GameObject target, Color color, Vector2 distance)
+    {
+        UnityEngine.UI.Outline outline = target.AddComponent<UnityEngine.UI.Outline>();
+        outline.effectColor = color;
+        outline.effectDistance = distance;
+    }
+
+    private static void ConfigureButtonColors(Button button, Color accent)
+    {
+        ColorBlock colors = button.colors;
+        colors.normalColor = Color.white;
+        colors.highlightedColor = new Color(accent.r, accent.g, accent.b, 0.88f);
+        colors.pressedColor = new Color(accent.r, accent.g, accent.b, 1f);
+        colors.selectedColor = new Color(accent.r, accent.g, accent.b, 0.78f);
+        colors.disabledColor = new Color(0.28f, 0.34f, 0.4f, 0.55f);
+        colors.colorMultiplier = 1f;
+        colors.fadeDuration = 0.08f;
+        button.colors = colors;
     }
 
     private static Sprite GetCircleSprite()

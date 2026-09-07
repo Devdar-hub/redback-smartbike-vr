@@ -28,14 +28,17 @@ public class RideAnalyticsDashboard : MonoBehaviour
     [SerializeField] private Image distanceProgressFill;
 
     [Header("HUD Pages")]
+    [SerializeField] private GameObject pausePage;
     [SerializeField] private GameObject mapPage;
     [SerializeField] private GameObject analyticsPage;
     [SerializeField] private GameObject endRidePage;
     [SerializeField] private TMP_Text pauseButtonText;
+    [SerializeField] private TMP_Text pauseSummaryText;
     [SerializeField] private TMP_Text analyticsSummaryText;
     [SerializeField] private TMP_Text endRideSummaryText;
 
     private bool pausedByHud;
+    private bool rideEnded;
 
     private void Awake()
     {
@@ -89,17 +92,21 @@ public class RideAnalyticsDashboard : MonoBehaviour
     }
 
     public void BindPages(
+        GameObject pause,
         GameObject map,
         GameObject analytics,
         GameObject endRide,
         TMP_Text pauseLabel,
+        TMP_Text pauseSummary,
         TMP_Text analyticsSummary,
         TMP_Text endRideSummary)
     {
+        pausePage = pause;
         mapPage = map;
         analyticsPage = analytics;
         endRidePage = endRide;
         pauseButtonText = pauseLabel;
+        pauseSummaryText = pauseSummary;
         analyticsSummaryText = analyticsSummary;
         endRideSummaryText = endRideSummary;
         HidePages();
@@ -123,6 +130,7 @@ public class RideAnalyticsDashboard : MonoBehaviour
         if (distanceProgressFill != null)
             distanceProgressFill.fillAmount = snapshot.DistanceProgress;
 
+        SetText(pauseSummaryText, BuildPauseSummary(snapshot));
         SetText(analyticsSummaryText, BuildAnalyticsSummary(snapshot));
     }
 
@@ -140,33 +148,28 @@ public class RideAnalyticsDashboard : MonoBehaviour
 
     public void TogglePause()
     {
-        if (analyticsManager == null)
-            analyticsManager = RideAnalyticsManager.Instance;
-        if (analyticsManager == null)
+        if (rideEnded)
             return;
 
         if (pausedByHud)
         {
-            analyticsManager.ResumeRide();
-            Time.timeScale = 1f;
-        }
-        else
-        {
-            analyticsManager.PauseRide();
-            Time.timeScale = 0f;
+            ResumeRideFromHud();
+            Debug.Log("Ride Analytics HUD resumed game.");
+            return;
         }
 
-        pausedByHud = !pausedByHud;
-        SetText(pauseButtonText, pausedByHud ? "Resume" : "Pause");
-        Debug.Log(pausedByHud ? "Ride Analytics HUD paused ride stats." : "Ride Analytics HUD resumed ride stats.");
+        OpenOverlayPage(pausePage, "Pause");
+        Debug.Log("Ride Analytics HUD paused game.");
     }
 
     public void ShowMap()
     {
-        HidePages();
+        if (rideEnded)
+            return;
+
         if (mapPage != null)
         {
-            mapPage.SetActive(true);
+            OpenOverlayPage(mapPage, "Map");
             return;
         }
 
@@ -182,10 +185,12 @@ public class RideAnalyticsDashboard : MonoBehaviour
 
     public void ShowAnalytics()
     {
-        HidePages();
+        if (rideEnded)
+            return;
+
         if (analyticsPage != null)
         {
-            analyticsPage.SetActive(true);
+            OpenOverlayPage(analyticsPage, "Analytics");
             return;
         }
 
@@ -201,12 +206,7 @@ public class RideAnalyticsDashboard : MonoBehaviour
 
     public void EndRide()
     {
-        if (pausedByHud)
-        {
-            pausedByHud = false;
-            Time.timeScale = 1f;
-            SetText(pauseButtonText, "Pause");
-        }
+        rideEnded = true;
 
         RideAnalyticsSnapshot snapshot = analyticsManager != null ? analyticsManager.EndRide() : null;
 
@@ -221,7 +221,8 @@ public class RideAnalyticsDashboard : MonoBehaviour
             endRidePage.SetActive(true);
         if (snapshot != null)
             SetText(endRideSummaryText, BuildEndRideSummary(snapshot));
-        Time.timeScale = 0f;
+        PauseGameOnly();
+        SetText(pauseButtonText, "Ended");
 
         Debug.Log("Ride Analytics HUD ended ride.");
     }
@@ -235,16 +236,71 @@ public class RideAnalyticsDashboard : MonoBehaviour
     public void ClosePages()
     {
         HidePages();
+        if (!rideEnded)
+            ResumeRideFromHud();
     }
 
     private void HidePages()
     {
+        if (pausePage != null)
+            pausePage.SetActive(false);
         if (mapPage != null)
             mapPage.SetActive(false);
         if (analyticsPage != null)
             analyticsPage.SetActive(false);
         if (endRidePage != null)
             endRidePage.SetActive(false);
+    }
+
+    private void OpenOverlayPage(GameObject page, string source)
+    {
+        HidePages();
+        if (page != null)
+            page.SetActive(true);
+
+        PauseRideFromHud();
+        Debug.Log("Ride Analytics HUD opened " + source + " overlay and paused gameplay.");
+    }
+
+    private void PauseRideFromHud()
+    {
+        if (analyticsManager == null)
+            analyticsManager = RideAnalyticsManager.Instance;
+
+        if (analyticsManager != null)
+            analyticsManager.PauseRide();
+
+        PauseGameOnly();
+        pausedByHud = true;
+        SetText(pauseButtonText, "Resume");
+    }
+
+    private void PauseGameOnly()
+    {
+        Time.timeScale = 0f;
+    }
+
+    private void ResumeRideFromHud()
+    {
+        if (analyticsManager == null)
+            analyticsManager = RideAnalyticsManager.Instance;
+
+        if (analyticsManager != null)
+            analyticsManager.ResumeRide();
+
+        Time.timeScale = 1f;
+        pausedByHud = false;
+        HidePages();
+        SetText(pauseButtonText, "Pause");
+    }
+
+    private string BuildPauseSummary(RideAnalyticsSnapshot snapshot)
+    {
+        return "Ride paused\n\n"
+            + "Current speed: " + snapshot.currentSpeedKmh.ToString("0.0") + " km/h\n"
+            + "Distance: " + snapshot.distanceKm.ToString("0.00") + " km\n"
+            + "Ride time: " + FormatTime(snapshot.rideTimeSeconds) + "\n\n"
+            + "Choose Back to Ride to continue.";
     }
 
     private string BuildAnalyticsSummary(RideAnalyticsSnapshot snapshot)
