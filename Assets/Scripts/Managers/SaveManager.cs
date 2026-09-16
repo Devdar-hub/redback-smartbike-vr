@@ -1,4 +1,4 @@
-using System.Collections;
+﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using System.IO;
@@ -12,6 +12,7 @@ public class SaveManager : MonoBehaviour
     private float startTime; // Record time since starting session
     private float playerTime; // Record total playtime
     private SaveData data; // Variable to store the save data for saving and loading
+    private const string DefaultProfileName = "Default"; // used when no profile was chosen
     public string profileName; // Name for currently accessed profile
 
 
@@ -37,6 +38,21 @@ public class SaveManager : MonoBehaviour
         SetProfilePath(profile);
         LoadData();
         data.profileName = profile;
+        startTime = Time.time;
+    }
+
+    /// <summary>
+    /// Scenes entered directly (a mission scene opened from the editor, or any
+    /// scene reached without passing through the profile screen) never call
+    /// SetProfile, which leaves filePath empty and makes every save fail. Fall
+    /// back to a default profile so saving works instead of erroring out.
+    /// </summary>
+    private void EnsureProfile()
+    {
+        if (!string.IsNullOrEmpty(filePath))
+            return;
+
+        SetProfile(string.IsNullOrEmpty(profileName) ? DefaultProfileName : profileName);
     }
 
     private void Update()
@@ -82,6 +98,43 @@ public class SaveManager : MonoBehaviour
         return data?.coins ?? 0; // Return, if null then returns zero
     }
 
+    // --- Race Mission best-time persistence (new) -----------------------
+    // Keyed by an arbitrary "trackKey" string (RaceHUD defaults this to the
+    // scene name) so different race tracks/scenes keep separate records
+    // within the same profile.
+
+    /// <summary>Saves the time if it beats the existing record (or if there isn't one yet). Returns the best time on file after saving.</summary>
+    public float SaveRaceBestTime(string trackKey, float timeSeconds)
+    {
+        EnsureDataInitialized();
+
+        var record = data.raceRecords.Find(r => r.trackKey == trackKey);
+        if (record == null)
+        {
+            record = new RaceRecord { trackKey = trackKey, bestTimeSeconds = timeSeconds };
+            data.raceRecords.Add(record);
+            SaveDataToFile();
+            return timeSeconds;
+        }
+
+        if (timeSeconds < record.bestTimeSeconds)
+        {
+            record.bestTimeSeconds = timeSeconds;
+            SaveDataToFile();
+        }
+
+        return record.bestTimeSeconds;
+    }
+
+    /// <summary>Returns the best time for a track, or -1 if none is recorded yet.</summary>
+    public float LoadRaceBestTime(string trackKey)
+    {
+        EnsureDataInitialized();
+
+        var record = data.raceRecords.Find(r => r.trackKey == trackKey);
+        return record?.bestTimeSeconds ?? -1f;
+    }
+
     // Creates/Accesses JSON file by specified profile name
     private void SetProfilePath(string profile)
     {
@@ -125,7 +178,7 @@ public class SaveManager : MonoBehaviour
     private void SavePlayerTime()
     {
         EnsureDataInitialized();
-        
+
         data.playerTime = playerTime;
         SaveDataToFile();
     }
@@ -133,11 +186,10 @@ public class SaveManager : MonoBehaviour
     // Ensure data is initialized to prevent null reference issues
     private void EnsureDataInitialized()
     {
+        EnsureProfile();
+
         if (data == null)
-        {
-            Debug.LogWarning("SaveData is null, initializing new SaveData.");
             data = new SaveData();
-        }
     }
 
     // Returns total play time

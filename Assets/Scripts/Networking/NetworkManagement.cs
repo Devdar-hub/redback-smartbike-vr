@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using Fusion;
@@ -10,7 +10,10 @@ using UnityEngine.Serialization;
 public class NetworkManagement : SimulationBehaviour, INetworkRunnerCallbacks
 {
     public string ActiveScene;
-    private NetworkRunner networkRunner;
+    // Named _localRunner, not _runner: Fusion's SimulationBehaviour base class
+    // already serializes a field called _runner, and Unity refuses to serialize
+    // the same field name twice in a hierarchy.
+    private NetworkRunner _localRunner;
     // prefabs for spawning
     public GameObject NetworkPlayer;
 
@@ -63,11 +66,11 @@ public class NetworkManagement : SimulationBehaviour, INetworkRunnerCallbacks
         _players = new Dictionary<PlayerRef, NetworkObject>();
         _networkItems = new List<NetworkObject>();
 
-        networkRunner = gameObject.AddComponent<NetworkRunner>();
-        networkRunner.ProvideInput = true;
+        _runner = gameObject.AddComponent<NetworkRunner>();
+        _runner.ProvideInput = true;
 
-        networkRunner.AddCallbacks(this);
-        networkRunner.StartGame(new StartGameArgs
+        _runner.AddCallbacks(this);
+        _runner.StartGame(new StartGameArgs
         {
             GameMode = GameMode.Shared,
             SessionName = ActiveScene,
@@ -79,11 +82,8 @@ public class NetworkManagement : SimulationBehaviour, INetworkRunnerCallbacks
 
     public void Disconnect()
     {
-        if (networkRunner == null)
-            return;
-
-        networkRunner.RemoveCallbacks(this);
-        networkRunner.Shutdown();
+        _runner.Shutdown();
+        _runner.RemoveCallbacks(this);
     }
 
     void OnApplicationQuit()
@@ -95,8 +95,23 @@ public class NetworkManagement : SimulationBehaviour, INetworkRunnerCallbacks
     {
         if (player == runner.LocalPlayer)
         {
+            // Defensive guard (stopgap): SpawnTarget can be an unassigned/broken
+            // reference if no mission spawn point matched and no default was set
+            // in the inspector. Falling back to the origin avoids a hard crash
+            // here while the underlying "Resolve Null Reference in Scenes" ticket
+            // is still being investigated.
+            if (SpawnTarget == null)
+            {
+                Debug.LogWarning(
+                    $"[NetworkManagement] SpawnTarget is null when spawning player {player.PlayerId}. " +
+                    "Falling back to world origin. Check mission spawn point assignment.");
+            }
+
+            var spawnPosition = SpawnTarget != null ? SpawnTarget.position : Vector3.zero;
+            var spawnRotation = SpawnTarget != null ? SpawnTarget.rotation : Quaternion.identity;
+
             // set the spawn location for the player
-            SpawnedPlayer = networkRunner.Spawn(NetworkPlayer, SpawnTarget.position, SpawnTarget.rotation, player);
+            SpawnedPlayer = _runner.Spawn(NetworkPlayer, SpawnTarget.position, SpawnTarget.rotation, player);
             SpawnedPlayer.name = $"Player_{player.PlayerId}";
             // hide the loading scene
             MapLoader.UnloadScene("LoadingScene");
