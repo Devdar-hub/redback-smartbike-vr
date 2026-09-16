@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 using UnityEngine;
 using uPLibrary.Networking.M2Mqtt.Messages;
 
@@ -8,7 +7,7 @@ public class RideAnalyticsManager : MonoBehaviour
     public static RideAnalyticsManager Instance { get; private set; }
 
     [Header("Data Source")]
-    [SerializeField] private bool useMockDataWhenMqttUnavailable = true;
+    [SerializeField] private bool useMockDataWhenMqttUnavailable = false;
     [SerializeField] private bool subscribeToMqtt = true;
     [SerializeField] private bool deriveSpeedFromMovement = true;
     [SerializeField] private Transform movementSource;
@@ -28,7 +27,7 @@ public class RideAnalyticsManager : MonoBehaviour
     [SerializeField] private bool deriveGearFromSpeed = true;
     [SerializeField] private int maxGear = 8;
 
-    [Header("Mock Values")]
+    [Header("Fallback Values")]
     [SerializeField] private float mockBaseSpeedKmh = 39.4f;
     [SerializeField] private float mockCadenceRpm = 82f;
     [SerializeField] private float mockHeartRateBpm = 132f;
@@ -60,6 +59,7 @@ public class RideAnalyticsManager : MonoBehaviour
     private float lastMqttCadenceValueTime = -999f;
     private float lastMqttHeartRateValueTime = -999f;
     private float lastMqttPowerValueTime = -999f;
+    private float lastBackendHudValueTime = -999f;
 
     public RideAnalyticsSnapshot Snapshot { get; private set; } = new RideAnalyticsSnapshot();
     public bool IsUsingMovementDrivenValues => deriveSpeedFromMovement;
@@ -98,6 +98,9 @@ public class RideAnalyticsManager : MonoBehaviour
     {
         TrySubscribeToMqtt();
         UpdateMovementSpeed();
+
+        if (IsExternalValueFresh(lastBackendHudValueTime))
+            return;
 
         if (!rideActive || ridePaused)
         {
@@ -151,6 +154,47 @@ public class RideAnalyticsManager : MonoBehaviour
             lastHeartRateValueTime = Time.time;
             lastPowerValueTime = Time.time;
         }
+    }
+
+    public void SetBackendHudValues(
+        float speedKmh,
+        float cadenceRpm,
+        float heartRateBpm,
+        float powerWatts,
+        int gear,
+        float backendDistanceKm,
+        float backendCaloriesKcal,
+        float backendRideTimeSeconds,
+        float backendAverageSpeedKmh,
+        float backendMaxSpeedKmh,
+        float backendProgressPercent)
+    {
+        SetApiValues(speedKmh, cadenceRpm, heartRateBpm, powerWatts, gear);
+
+        float progress = Mathf.Clamp01(backendProgressPercent / 100f);
+        int completedCheckpoints = checkpointsTotal > 0
+            ? Mathf.RoundToInt(progress * checkpointsTotal)
+            : 0;
+
+        distanceKm = Mathf.Max(0f, backendDistanceKm);
+        caloriesKcal = Mathf.Max(0f, backendCaloriesKcal);
+        movingRideTimeSeconds = Mathf.Max(0f, backendRideTimeSeconds);
+        maxSpeedKmh = Mathf.Max(0f, backendMaxSpeedKmh);
+
+        Snapshot.currentSpeedKmh = Mathf.Max(0f, speedKmh);
+        Snapshot.averageSpeedKmh = Mathf.Max(0f, backendAverageSpeedKmh);
+        Snapshot.maxSpeedKmh = maxSpeedKmh;
+        Snapshot.cadenceRpm = Mathf.Max(0f, cadenceRpm);
+        Snapshot.distanceKm = distanceKm;
+        Snapshot.caloriesKcal = caloriesKcal;
+        Snapshot.heartRateBpm = Mathf.Max(0f, heartRateBpm);
+        Snapshot.rideTimeSeconds = movingRideTimeSeconds;
+        Snapshot.currentMission = GetMissionName();
+        Snapshot.checkpointsCompleted = Mathf.Clamp(completedCheckpoints, 0, checkpointsTotal);
+        Snapshot.checkpointsTotal = checkpointsTotal;
+        Snapshot.personalBestKmh = Mathf.Max(defaultPersonalBestKmh, maxSpeedKmh);
+        Snapshot.currentGear = Mathf.Max(0, gear);
+        lastBackendHudValueTime = Time.time;
     }
 
     public void BeginRide()
@@ -220,43 +264,42 @@ public class RideAnalyticsManager : MonoBehaviour
     private void OnMqttMessage(object sender, MqttMsgPublishEventArgs e)
     {
         string message = System.Text.Encoding.UTF8.GetString(e.Message);
-        float value = ReadFloatField(message, "value");
-
-        if (value <= 0f)
-        {
-            value = ReadFloatField(message, "speed");
-            if (value <= 0f)
-                value = ReadFloatField(message, "cadence");
-            if (value <= 0f)
-                value = ReadFloatField(message, "heartrate");
-            if (value <= 0f)
-                value = ReadFloatField(message, "heartRate");
-            if (value <= 0f)
-                value = ReadFloatField(message, "power");
-        }
+        float value;
 
         lock (mqttLock)
         {
             if (e.Topic == Mqtt.SpeedTopic)
             {
+                if (!MqttFieldParser.TryReadFloat(message, out value, "speed", "value"))
+                    return;
+
                 mqttSpeedKmh = Mathf.Max(0f, value);
                 lastSpeedValueTime = Time.time;
                 lastMqttSpeedValueTime = Time.time;
             }
             else if (e.Topic == Mqtt.CadenceTopic)
             {
+                if (!MqttFieldParser.TryReadFloat(message, out value, "cadence", "rpm", "value"))
+                    return;
+
                 mqttCadenceRpm = Mathf.Max(0f, value);
                 lastCadenceValueTime = Time.time;
                 lastMqttCadenceValueTime = Time.time;
             }
             else if (e.Topic == Mqtt.HeartRateTopic)
             {
+                if (!MqttFieldParser.TryReadFloat(message, out value, "heartrate", "heartRate", "heart_rate", "bpm", "value"))
+                    return;
+
                 mqttHeartRateBpm = Mathf.Max(0f, value);
                 lastHeartRateValueTime = Time.time;
                 lastMqttHeartRateValueTime = Time.time;
             }
             else if (e.Topic == Mqtt.PowerTopic)
             {
+                if (!MqttFieldParser.TryReadFloat(message, out value, "power", "watts", "value"))
+                    return;
+
                 mqttPowerWatts = Mathf.Max(0f, value);
                 lastPowerValueTime = Time.time;
                 lastMqttPowerValueTime = Time.time;
@@ -544,24 +587,4 @@ public class RideAnalyticsManager : MonoBehaviour
         return Mathf.Clamp(Mathf.FloorToInt(distanceKm * 1.6f), 0, checkpointsTotal);
     }
 
-    private float ReadFloatField(string message, string fieldName)
-    {
-        int keyIndex = message.IndexOf("\"" + fieldName + "\"", StringComparison.OrdinalIgnoreCase);
-        if (keyIndex == -1)
-            keyIndex = message.IndexOf("'" + fieldName + "'", StringComparison.OrdinalIgnoreCase);
-        if (keyIndex == -1)
-            return 0f;
-
-        int colonIndex = message.IndexOf(':', keyIndex);
-        if (colonIndex == -1)
-            return 0f;
-
-        int endIndex = message.IndexOfAny(new[] { ',', '}' }, colonIndex + 1);
-        if (endIndex == -1)
-            endIndex = message.Length;
-
-        string rawValue = message.Substring(colonIndex + 1, endIndex - colonIndex - 1).Trim().Trim('\'', '"');
-        float parsed;
-        return float.TryParse(rawValue, NumberStyles.Float, CultureInfo.InvariantCulture, out parsed) ? parsed : 0f;
-    }
 }

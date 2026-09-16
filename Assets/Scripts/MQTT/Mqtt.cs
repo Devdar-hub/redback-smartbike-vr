@@ -52,7 +52,11 @@ public class Mqtt : MonoBehaviour
         if (_instance == null)
         {
             _instance = this;
-            DontDestroyOnLoad(gameObject);
+
+            // Some prefabs also carry MQTT on child objects. Unity only allows
+            // DontDestroyOnLoad on root objects, so guard it to avoid scene warnings.
+            if (transform.parent == null)
+                DontDestroyOnLoad(gameObject);
         }
 
         if (!string.IsNullOrWhiteSpace(PlayerPrefs.GetString("MQTTHost")))

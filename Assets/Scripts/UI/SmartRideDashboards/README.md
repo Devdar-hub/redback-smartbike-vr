@@ -33,9 +33,9 @@ The interactive dashboard starts on the Select Bike screen. Click the visible bu
 - Right Arrow: next dashboard
 - Left Arrow: previous dashboard
 
-During Play Mode, the overview, analytics, and trip detail values update from `RideAnalyticsManager`. If MQTT is not connected, the manager uses mock ride data so the values still move while testing locally.
+During Play Mode, the overview, analytics, and trip detail values update from `RideAnalyticsManager`. Without movement, MQTT, or backend database values, the dashboard remains at zero instead of generating local mock ride data.
 
-New interactive dashboards created from the Unity menu also include `RideAnalyticsApiClient`. API polling is off by default so local mock testing still works. Enable `Poll Dashboard Hud` when the backend is running and you want the dashboard to consume `/api/dashboard/hud`.
+New interactive dashboards created from the Unity menu also include `RideAnalyticsApiClient`. API polling is off by default. Enable `Poll Dashboard Hud` when the backend is running and you want the dashboard to consume database-backed `/api/dashboard/hud` values.
 
 ## Prefab
 

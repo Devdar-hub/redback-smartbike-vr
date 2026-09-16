@@ -14,8 +14,6 @@ public class RideAnalyticsApiClient : MonoBehaviour
 
     [Header("Polling")]
     [SerializeField] private bool pollDashboardHud;
-    [SerializeField] private bool useBackendMockHud;
-    [SerializeField] private bool applyBackendMockHudToRideValues;
     [SerializeField] private float pollIntervalSeconds = 2f;
     [SerializeField] private float targetDistanceKm = 30f;
     [SerializeField] private int fallbackGear = 6;
@@ -171,9 +169,6 @@ public class RideAnalyticsApiClient : MonoBehaviour
         string query = "/api/dashboard/hud?gear=" + fallbackGear.ToString(CultureInfo.InvariantCulture)
             + "&target_distance_km=" + targetDistanceKm.ToString(CultureInfo.InvariantCulture);
 
-        if (useBackendMockHud)
-            query += "&mock=true";
-
         if (!string.IsNullOrWhiteSpace(currentRideId))
             query += "&ride_id=" + UnityWebRequest.EscapeURL(currentRideId);
 
@@ -194,24 +189,18 @@ public class RideAnalyticsApiClient : MonoBehaviour
 
             currentRideId = string.IsNullOrWhiteSpace(currentRideId) ? response.rideId : currentRideId;
 
-            if (useBackendMockHud && analyticsManager != null && analyticsManager.IsUsingMovementDrivenValues)
-            {
-                Debug.Log("Dashboard mock API response ignored because the HUD is using movement-driven ride values.");
-                yield break;
-            }
-
-            if (useBackendMockHud && !applyBackendMockHudToRideValues)
-            {
-                Debug.Log("Dashboard mock API response received. Enable Apply Backend Mock Hud To Ride Values to use mock API values in the HUD.");
-                yield break;
-            }
-
-            analyticsManager?.SetApiValues(
+            analyticsManager?.SetBackendHudValues(
                 response.currentSpeedKmh,
                 response.cadenceRpm,
                 response.heartRateBpm,
                 response.powerWatts,
-                response.currentGear > 0 ? response.currentGear : fallbackGear);
+                response.currentGear > 0 ? response.currentGear : fallbackGear,
+                response.distanceKm,
+                response.caloriesKcal,
+                response.rideTimeSeconds,
+                response.averageSpeedKmh,
+                response.maxSpeedKmh,
+                response.progressPercent);
         }
     }
 
@@ -250,5 +239,11 @@ public class RideAnalyticsApiClient : MonoBehaviour
         public float heartRateBpm;
         public float powerWatts;
         public int currentGear;
+        public float distanceKm;
+        public float caloriesKcal;
+        public float rideTimeSeconds;
+        public float averageSpeedKmh;
+        public float maxSpeedKmh;
+        public float progressPercent;
     }
 }
