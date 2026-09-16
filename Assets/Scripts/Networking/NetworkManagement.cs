@@ -66,11 +66,11 @@ public class NetworkManagement : SimulationBehaviour, INetworkRunnerCallbacks
         _players = new Dictionary<PlayerRef, NetworkObject>();
         _networkItems = new List<NetworkObject>();
 
-        _localRunner = gameObject.AddComponent<NetworkRunner>();
-        _localRunner.ProvideInput = true;
+        _runner = gameObject.AddComponent<NetworkRunner>();
+        _runner.ProvideInput = true;
 
-        _localRunner.AddCallbacks(this);
-        _localRunner.StartGame(new StartGameArgs
+        _runner.AddCallbacks(this);
+        _runner.StartGame(new StartGameArgs
         {
             GameMode = GameMode.Shared,
             SessionName = ActiveScene,
@@ -82,15 +82,8 @@ public class NetworkManagement : SimulationBehaviour, INetworkRunnerCallbacks
 
     public void Disconnect()
     {
-        // Defensive guard: _localRunner is only assigned in Start(), and Disconnect()
-        // can be reached from OnApplicationQuit/OnTeleport before that, or a
-        // second time after an earlier shutdown.
-        if (_localRunner == null)
-            return;
-
-        _localRunner.Shutdown();
-        _localRunner.RemoveCallbacks(this);
-        _localRunner = null;
+        _runner.Shutdown();
+        _runner.RemoveCallbacks(this);
     }
 
     void OnApplicationQuit()
@@ -118,7 +111,7 @@ public class NetworkManagement : SimulationBehaviour, INetworkRunnerCallbacks
             var spawnRotation = SpawnTarget != null ? SpawnTarget.rotation : Quaternion.identity;
 
             // set the spawn location for the player
-            SpawnedPlayer = _localRunner.Spawn(NetworkPlayer, spawnPosition, spawnRotation, player);
+            SpawnedPlayer = _runner.Spawn(NetworkPlayer, SpawnTarget.position, SpawnTarget.rotation, player);
             SpawnedPlayer.name = $"Player_{player.PlayerId}";
             // hide the loading scene
             MapLoader.UnloadScene("LoadingScene");

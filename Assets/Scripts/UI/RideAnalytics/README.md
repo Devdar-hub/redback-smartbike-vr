@@ -7,6 +7,7 @@ This module creates the Smart Ride Analytics dashboard shown in the Figma mockup
 - `RideAnalyticsManager.cs` collects speed, cadence, heart rate, power, ride time, distance, calories, mission, checkpoint, personal-best, and gear values.
 - `RideAnalyticsDashboard.cs` formats analytics values into TextMeshPro UI labels.
 - `RideAnalyticsHudBuilder.cs` builds the screen-space dashboard UI at runtime.
+- `RideAnalyticsApiClient.cs` can start/end backend ride sessions and poll dashboard HUD values from the Node/Express API.
 - `Assets/Editor/RideAnalytics/RideAnalyticsHudPrefabCreator.cs` adds Unity menu tools for creating the HUD prefab or adding it to the current scene.
 
 ## Local Test
@@ -17,7 +18,7 @@ This module creates the Smart Ride Analytics dashboard shown in the Figma mockup
 4. Use `SmartBike > Ride Analytics > Add HUD To Current Scene`.
 5. Press Play.
 
-The HUD uses mock ride data when MQTT is not connected, so the numbers should update immediately.
+The HUD starts at zero unless it receives movement, MQTT values, or backend database values. It no longer requests generated mock HUD data from the backend.
 
 If the HUD already exists in the scene and looks wrong after script changes:
 
@@ -52,4 +53,21 @@ For REST API integration, call:
 RideAnalyticsManager.Instance.SetApiValues(speedKmh, cadenceRpm, heartRateBpm, powerWatts, gear);
 ```
 
-When the real API details are available, add a small API client that fetches values and passes them into this method.
+`RideAnalyticsApiClient` now calls `SetBackendHudValues` automatically when API polling is enabled. This applies the full backend HUD response, including speed, cadence, heart rate, power, distance, calories, ride time, average speed, max speed, gear, and progress.
+
+## Backend API Test
+
+1. Start the backend project locally on port `5000`.
+2. In Unity, select the `RideAnalyticsHUD` object.
+3. In `Ride Analytics Api Client`, keep `Api Base Url` as `http://localhost:5000`.
+4. Add a valid database `ride_id` to `Current Ride Id` to display stored database demo values.
+5. Add a valid Supabase `profiles.id` value to `User Id` if you want to test backend ride saving.
+6. Use the component context menu:
+   - `Start Backend Ride`
+   - `Fetch HUD Once`
+   - `End Backend Ride`
+7. To keep polling live data, enable `Poll Dashboard Hud`.
+
+If `User Id` is empty, the client still starts a local ride, but backend ride saving requires a valid Supabase profile UUID because the `rides.user_id` column is required.
+
+Use backend database demo data for dashboard testing. Do not append `mock=true` to `/api/dashboard/hud`; that path generates temporary values and is not suitable for final dashboard integration.
