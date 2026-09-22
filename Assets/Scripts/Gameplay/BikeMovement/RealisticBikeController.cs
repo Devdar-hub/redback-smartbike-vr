@@ -14,12 +14,19 @@ namespace Gameplay.BikeMovement
         [SerializeField] private float maxSteer = 45;
         [SerializeField] private float maxLean = 45;
         [SerializeField] private float maxAccelleration = 3f;
-        [SerializeField] private float centerOfMassY = 0.6f;
         [SerializeField] private float balancingForce = 10f;
 
         [SerializeField] private AnimationCurve balanceResponseCurve;
         [SerializeField] private float stoppedBalanceForce = 80f;
         [SerializeField] private float stoppedBalanceSpeedThreshold = 1.5f;
+        [SerializeField] private float frontBrakeBias = 0.7f;
+        [SerializeField] private float brakeForceMultiplier = 3f;
+
+        [SerializeField] private bool enableBalancing = false;
+        [SerializeField] private Vector3 centerOfMassOffset = new Vector3(0f, 0.01f, 0f);
+
+        [SerializeField] private bool lockRoll = true;
+        [SerializeField] private float rollCorrectionSpeed = 30f;
 
         private IPlayerInput _playerInput;
         private WheelCollider _frontWheelCol;
@@ -44,6 +51,11 @@ namespace Gameplay.BikeMovement
 
         public float DeltaTime { get; set; }
         public float Speed { get; set; }
+        [Header("Suspension Override (runtime)")]
+        [SerializeField] private bool overrideSuspensionDistance = true;
+        [SerializeField] private float frontSuspensionDistance = 0.04f;
+        [SerializeField] private float rearSuspensionDistance = 0.9f;
+
 
         public void Init(GameObject controller)
         {
@@ -53,8 +65,8 @@ namespace Gameplay.BikeMovement
             _rb = controller.GetComponent<Rigidbody>();
             _rb.isKinematic = false;
             _rb.constraints =
-                RigidbodyConstraints.FreezeRotationX |
-                RigidbodyConstraints.FreezeRotationZ;
+                RigidbodyConstraints.FreezeRotationZ; //|
+                //RigidbodyConstraints.FreezeRotationX;
 
             var selector = controller.GetComponentInChildren<BikeSelector>();
             var currentBike = selector == null ? null : selector.CurrentBike;
@@ -74,12 +86,25 @@ namespace Gameplay.BikeMovement
             _frontHandlePivot = currentBike.frontHandlePivot;
             _rearWheelTransform = currentBike.rearWheelTransform;
             _pedalTf = currentBike.pedalTransform;
+ 
+            _frontWheelCol.suspensionDistance = frontSuspensionDistance;
+            _rearWheelCol.suspensionDistance = rearSuspensionDistance;
 
 
             _wheelbase = Vector3.Distance(_frontWheelCol.transform.position, _rearWheelCol.transform.position);
 
             _isSelected = true;
             CalculatePhysicalProperties();
+
+            //Enable the debug option to override the suspension length
+            if (!overrideSuspensionDistance) return;
+ 
+            Debug.Log($"[RealisticBikeController] Suspension distance override — " +
+                      $"front: {_frontWheelCol.suspensionDistance} -> {frontSuspensionDistance}, " +
+                      $"rear: {_rearWheelCol.suspensionDistance} -> {rearSuspensionDistance}");
+ 
+            _frontWheelCol.suspensionDistance = frontSuspensionDistance;
+            _rearWheelCol.suspensionDistance = frontSuspensionDistance;
 
         }
 
@@ -128,10 +153,10 @@ namespace Gameplay.BikeMovement
         {
             // Calculate mass and center of mass adjustments.
             _mass = _rb.mass + _frontWheelCol.mass + _rearWheelCol.mass;
-            Vector3 centerOfMass = _rb.centerOfMass;
-            centerOfMass.y = centerOfMassY;
-            centerOfMass.z = 0;
-            _rb.centerOfMass = centerOfMass;
+
+            // Center of mass is now a fully adjustable Vector3 (see centerOfMassOffset
+            // in the inspector) instead of only the Y axis.
+            _rb.centerOfMass = centerOfMassOffset;
 
             // Set up inertia tensor (approximation).
             _frontWheelCol.GetWorldPose(out Vector3 pos1, out Quaternion rot1);
@@ -212,10 +237,34 @@ namespace Gameplay.BikeMovement
 
             ApplyMotor(direction);
             HandleSteering(direction);
-            ApplyBalance();
+
+            // Leaning / self-balancing is toggled off by default right now.
+            if (enableBalancing)
+            {
+                ApplyBalance();
+            }
+
+            if (lockRoll)
+            {
+                ApplyRollLock();
+            }
+
             LimitAngularVelocity();
         }
+        private void ApplyRollLock()
+        {
+            Vector3 forward = _tf.forward;
+            if (forward.sqrMagnitude < 0.0001f) return;
 
+            Quaternion noRollRotation = Quaternion.LookRotation(forward, Vector3.up);
+            float t = 1f - Mathf.Exp(-rollCorrectionSpeed * DeltaTime);
+            _rb.MoveRotation(Quaternion.Slerp(_tf.rotation, noRollRotation, t));
+
+            // Strip out any angular velocity around the forward (roll) axis so
+            // physics doesn't keep re-introducing the lean we just corrected.
+            Vector3 rollComponent = Vector3.Project(_rb.angularVelocity, _tf.forward);
+            _rb.angularVelocity -= rollComponent;
+        }
 
         private void ApplyBalance()
         {
@@ -282,7 +331,9 @@ namespace Gameplay.BikeMovement
 
         private void SetBrake(float value)
         {
-            _rearWheelCol.brakeTorque = value;
+            float totalBrake = value * _mass * _rearWheelCol.radius * brakeForceMultiplier;
+            _frontWheelCol.brakeTorque = totalBrake * frontBrakeBias;
+            _rearWheelCol.brakeTorque = totalBrake * (1f - frontBrakeBias);
         }
 
         private void Update()
