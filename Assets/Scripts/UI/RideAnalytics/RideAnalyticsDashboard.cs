@@ -119,7 +119,7 @@ public class RideAnalyticsDashboard : MonoBehaviour
         SetText(maxSpeedText, string.Format("{0:0.0} km/h", snapshot.maxSpeedKmh));
         SetText(distanceText, string.Format("{0:0.00} km", snapshot.distanceKm));
         SetText(rideDurationText, FormatTime(snapshot.rideTimeSeconds));
-        SetText(caloriesText, string.Format("{0:0} k cal", snapshot.caloriesKcal));
+        SetText(caloriesText, string.Format("{0:0} kcal", snapshot.caloriesKcal));
         SetText(heartRateText, string.Format("{0:0} bpm", snapshot.heartRateBpm));
         SetText(progressText, string.Format("{0:0}%", snapshot.DistanceProgress * 100f));
         SetText(gearText, snapshot.currentGear > 0 ? snapshot.currentGear.ToString() : "-");
