@@ -35,7 +35,7 @@ The interactive dashboard starts on the Select Bike screen. Click the visible bu
 
 During Play Mode, the overview, analytics, and trip detail values update from `RideAnalyticsManager`. Without movement, MQTT, or backend database values, the dashboard remains at zero instead of generating local mock ride data.
 
-New interactive dashboards created from the Unity menu also include `RideAnalyticsApiClient`. API polling is off by default. Enable `Poll Dashboard Hud` when the backend is running and you want the dashboard to consume database-backed `/api/dashboard/hud` values.
+New interactive dashboards created from the Unity menu also include `RideAnalyticsApiClient`. API polling is off by default. Enable `Poll Dashboard Hud` when the backend is running and you want the dashboard to consume database-backed `/api/rides/{ride_id}` values from the existing `rides` and `sensor_data` tables.
 
 ## Prefab
 
@@ -47,4 +47,4 @@ Drop that prefab into any scene where the dashboard gallery should be available.
 
 ## Notes
 
-The interactive dashboard is built from Unity UI components rather than static PNGs. The next production step is to use the backend ride/session APIs with a real Supabase `profiles.id`, then send real MQTT sensor payloads with the active `ride_id`.
+The interactive dashboard is built from Unity UI components rather than static PNGs. The current backend demo path uses stored database rows from `rides` and `sensor_data`; the next production step is to connect real MQTT sensor payloads to the active `ride_id`.

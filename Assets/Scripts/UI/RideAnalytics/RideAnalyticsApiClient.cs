@@ -9,6 +9,9 @@ public class RideAnalyticsApiClient : MonoBehaviour
 {
     [Header("Backend")]
     [SerializeField] private string apiBaseUrl = "http://localhost:5000";
+    [SerializeField] private string ridesEndpointPath = "/api/rides";
+    [SerializeField] private string rideDetailsEndpointTemplate = "/api/rides/{ride_id}";
+    [SerializeField] private string sensorDataEndpointTemplate = "/api/rides/{ride_id}/sensor-data";
     [SerializeField] private string userId;
     [SerializeField] private string currentRideId;
 
@@ -54,7 +57,7 @@ public class RideAnalyticsApiClient : MonoBehaviour
         StartCoroutine(EndRideRoutine());
     }
 
-    [ContextMenu("Fetch HUD Once")]
+    [ContextMenu("Fetch Ride Data Once")]
     public void FetchHudOnce()
     {
         StartCoroutine(FetchHudRoutine());
@@ -166,41 +169,214 @@ public class RideAnalyticsApiClient : MonoBehaviour
         if (analyticsManager == null)
             analyticsManager = RideAnalyticsManager.Instance;
 
-        string query = "/api/dashboard/hud?gear=" + fallbackGear.ToString(CultureInfo.InvariantCulture)
-            + "&target_distance_km=" + targetDistanceKm.ToString(CultureInfo.InvariantCulture);
+        string ridePath = BuildRideFetchPath();
+        if (string.IsNullOrWhiteSpace(ridePath))
+        {
+            Debug.LogWarning("RideAnalyticsApiClient needs Current Ride Id before it can fetch the backend ride detail endpoint.");
+            yield break;
+        }
 
-        if (!string.IsNullOrWhiteSpace(currentRideId))
-            query += "&ride_id=" + UnityWebRequest.EscapeURL(currentRideId);
-
-        using (UnityWebRequest request = UnityWebRequest.Get(BuildUrl(query)))
+        using (UnityWebRequest request = UnityWebRequest.Get(BuildUrl(ridePath)))
         {
             request.timeout = 5;
             yield return request.SendWebRequest();
 
             if (request.result != UnityWebRequest.Result.Success)
             {
-                Debug.LogWarning("Failed to fetch dashboard HUD data: " + request.error + " " + request.downloadHandler.text);
+                Debug.LogWarning("Failed to fetch ride data: " + request.error + " " + request.downloadHandler.text);
                 yield break;
             }
 
-            DashboardHudResponse response = JsonUtility.FromJson<DashboardHudResponse>(request.downloadHandler.text);
-            if (response == null)
+            RideApiRecord ride = ParseRideResponse(request.downloadHandler.text);
+            if (ride == null)
+            {
+                Debug.LogWarning("Ride data response did not contain any rides.");
                 yield break;
+            }
 
-            currentRideId = string.IsNullOrWhiteSpace(currentRideId) ? response.rideId : currentRideId;
+            currentRideId = string.IsNullOrWhiteSpace(currentRideId) ? ride.ride_id : currentRideId;
+            if (!ride.HasSensorData && !string.IsNullOrWhiteSpace(ride.ride_id))
+                yield return FetchSensorDataRoutine(ride);
+
+            SensorDataRecord latestSensor = ride.LatestSensor();
+            RideApiMetrics metrics = RideApiMetrics.FromRide(ride, latestSensor, targetDistanceKm);
 
             analyticsManager?.SetBackendHudValues(
-                response.currentSpeedKmh,
-                response.cadenceRpm,
-                response.heartRateBpm,
-                response.powerWatts,
-                response.currentGear > 0 ? response.currentGear : fallbackGear,
-                response.distanceKm,
-                response.caloriesKcal,
-                response.rideTimeSeconds,
-                response.averageSpeedKmh,
-                response.maxSpeedKmh,
-                response.progressPercent);
+                metrics.currentSpeedKmh,
+                metrics.cadenceRpm,
+                metrics.heartRateBpm,
+                metrics.powerWatts,
+                fallbackGear,
+                metrics.distanceKm,
+                metrics.caloriesKcal,
+                metrics.rideTimeSeconds,
+                metrics.averageSpeedKmh,
+                metrics.maxSpeedKmh,
+                metrics.progressPercent);
+        }
+    }
+
+    private string BuildRideFetchPath()
+    {
+        if (!string.IsNullOrWhiteSpace(currentRideId))
+            return rideDetailsEndpointTemplate.Replace("{ride_id}", UnityWebRequest.EscapeURL(currentRideId));
+
+        return ridesEndpointPath;
+    }
+
+    private IEnumerator FetchSensorDataRoutine(RideApiRecord ride)
+    {
+        if (ride == null || string.IsNullOrWhiteSpace(ride.ride_id) || string.IsNullOrWhiteSpace(sensorDataEndpointTemplate))
+            yield break;
+
+        string path = sensorDataEndpointTemplate.Replace("{ride_id}", UnityWebRequest.EscapeURL(ride.ride_id));
+        using (UnityWebRequest request = UnityWebRequest.Get(BuildUrl(path)))
+        {
+            request.timeout = 5;
+            yield return request.SendWebRequest();
+
+            if (request.result != UnityWebRequest.Result.Success)
+            {
+                Debug.LogWarning("Ride data loaded, but sensor data could not be fetched: " + request.error + " " + request.downloadHandler.text);
+                yield break;
+            }
+
+            SensorDataRecord[] records = ParseSensorDataResponse(request.downloadHandler.text);
+            if (records != null && records.Length > 0)
+                ride.sensor_data = records;
+        }
+    }
+
+    private RideApiRecord ParseRideResponse(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return null;
+
+        RideApiRecord directRide = TryParseRide(json);
+        if (directRide != null && !string.IsNullOrWhiteSpace(directRide.ride_id))
+            return directRide;
+
+        RideApiSingleResponse singleResponse = TryParseSingleRideResponse(json);
+        if (singleResponse != null && singleResponse.Ride != null && !string.IsNullOrWhiteSpace(singleResponse.Ride.ride_id))
+            return singleResponse.Ride;
+
+        RideApiResponse wrapped = TryParseRideResponse(json);
+        if (wrapped == null || wrapped.Rides == null || wrapped.Rides.Length == 0)
+            return null;
+
+        RideApiRecord selectedRide = SelectRide(wrapped.Rides);
+        if (selectedRide != null)
+            return selectedRide;
+
+        return wrapped.Rides[wrapped.Rides.Length - 1];
+    }
+
+    private RideApiSingleResponse TryParseSingleRideResponse(string json)
+    {
+        try
+        {
+            return JsonUtility.FromJson<RideApiSingleResponse>(json);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private RideApiResponse TryParseRideResponse(string json)
+    {
+        try
+        {
+            string trimmed = json.TrimStart();
+            if (trimmed.StartsWith("[", StringComparison.Ordinal))
+                return JsonUtility.FromJson<RideApiResponse>("{\"rides\":" + json + "}");
+
+            RideApiResponse response = JsonUtility.FromJson<RideApiResponse>(json);
+            if (response != null && response.Rides != null && response.Rides.Length > 0)
+                return response;
+
+            ApiDataResponse dataResponse = JsonUtility.FromJson<ApiDataResponse>(json);
+            if (dataResponse != null && dataResponse.data != null && dataResponse.data.Length > 0)
+                return new RideApiResponse { rides = dataResponse.data };
+
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning("Could not parse ride list response: " + ex.Message);
+            return null;
+        }
+    }
+
+    private RideApiRecord TryParseRide(string json)
+    {
+        try
+        {
+            return JsonUtility.FromJson<RideApiRecord>(json);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private RideApiRecord SelectRide(RideApiRecord[] rides)
+    {
+        if (rides == null || rides.Length == 0)
+            return null;
+
+        if (!string.IsNullOrWhiteSpace(currentRideId))
+        {
+            for (int i = 0; i < rides.Length; i++)
+            {
+                if (rides[i] != null && string.Equals(rides[i].ride_id, currentRideId, StringComparison.OrdinalIgnoreCase))
+                    return rides[i];
+            }
+        }
+
+        RideApiRecord newestRide = null;
+        DateTime newestStart = DateTime.MinValue;
+
+        for (int i = 0; i < rides.Length; i++)
+        {
+            RideApiRecord ride = rides[i];
+            if (ride == null)
+                continue;
+
+            DateTime rideStart;
+            if (DateTime.TryParse(ride.start_time, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out rideStart)
+                && (newestRide == null || rideStart > newestStart))
+            {
+                newestRide = ride;
+                newestStart = rideStart;
+            }
+        }
+
+        return newestRide ?? rides[rides.Length - 1];
+    }
+
+    private SensorDataRecord[] ParseSensorDataResponse(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return null;
+
+        try
+        {
+            string trimmed = json.TrimStart();
+            if (trimmed.StartsWith("[", StringComparison.Ordinal))
+                return JsonUtility.FromJson<SensorDataApiResponse>("{\"sensor_data\":" + json + "}").SensorRecords;
+
+            SensorDataApiResponse response = JsonUtility.FromJson<SensorDataApiResponse>(json);
+            if (response != null && response.SensorRecords != null && response.SensorRecords.Length > 0)
+                return response.SensorRecords;
+
+            SensorDataDataResponse dataResponse = JsonUtility.FromJson<SensorDataDataResponse>(json);
+            return dataResponse != null ? dataResponse.data : null;
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning("Could not parse sensor data response: " + ex.Message);
+            return null;
         }
     }
 
@@ -231,19 +407,223 @@ public class RideAnalyticsApiClient : MonoBehaviour
     }
 
     [Serializable]
-    private class DashboardHudResponse
+    private class RideApiResponse
     {
-        public string rideId;
+        public RideApiRecord[] rides;
+
+        public RideApiRecord[] Rides
+        {
+            get { return rides; }
+        }
+    }
+
+    [Serializable]
+    private class ApiDataResponse
+    {
+        public RideApiRecord[] data;
+    }
+
+    [Serializable]
+    private class RideApiSingleResponse
+    {
+        public RideApiRecord ride;
+        public RideApiRecord data;
+
+        public RideApiRecord Ride
+        {
+            get
+            {
+                return ride != null ? ride : data;
+            }
+        }
+    }
+
+    [Serializable]
+    private class RideApiRecord
+    {
+        public string ride_id;
+        public string start_time;
+        public string end_time;
+        public float distance;
+        public float avg_speed;
+        public float calories;
+        public string duration;
+        public SensorDataRecord[] sensor_data;
+        public SensorDataRecord[] sensorData;
+
+        public bool HasSensorData
+        {
+            get
+            {
+                SensorDataRecord[] records = SensorRecords;
+                return records != null && records.Length > 0;
+            }
+        }
+
+        public SensorDataRecord LatestSensor()
+        {
+            SensorDataRecord[] records = SensorRecords;
+            if (records == null || records.Length == 0)
+                return null;
+
+            SensorDataRecord latest = records[0];
+            DateTime latestTime = ParseDateTime(latest.timestamp);
+
+            for (int i = 1; i < records.Length; i++)
+            {
+                SensorDataRecord record = records[i];
+                if (record == null)
+                    continue;
+
+                DateTime recordTime = ParseDateTime(record.timestamp);
+                if (recordTime >= latestTime)
+                {
+                    latest = record;
+                    latestTime = recordTime;
+                }
+            }
+
+            return latest;
+        }
+
+        public float MaxSensorSpeed()
+        {
+            SensorDataRecord[] records = SensorRecords;
+            if (records == null || records.Length == 0)
+                return 0f;
+
+            float maxSpeed = 0f;
+            for (int i = 0; i < records.Length; i++)
+            {
+                if (records[i] != null)
+                    maxSpeed = Mathf.Max(maxSpeed, records[i].speed);
+            }
+
+            return maxSpeed;
+        }
+
+        public SensorDataRecord[] SensorRecords
+        {
+            get
+            {
+                if (sensor_data != null && sensor_data.Length > 0)
+                    return sensor_data;
+
+                return sensorData;
+            }
+        }
+    }
+
+    [Serializable]
+    private class SensorDataRecord
+    {
+        public string timestamp;
+        public float speed;
+        public float cadence;
+        public float heart_rate;
+        public float heartRate;
+        public float power;
+
+        public float HeartRateBpm
+        {
+            get { return heart_rate > 0f ? heart_rate : heartRate; }
+        }
+    }
+
+    [Serializable]
+    private class SensorDataApiResponse
+    {
+        public SensorDataRecord[] sensor_data;
+        public SensorDataRecord[] sensorData;
+
+        public SensorDataRecord[] SensorRecords
+        {
+            get
+            {
+                if (sensor_data != null && sensor_data.Length > 0)
+                    return sensor_data;
+
+                return sensorData;
+            }
+        }
+    }
+
+    [Serializable]
+    private class SensorDataDataResponse
+    {
+        public SensorDataRecord[] data;
+    }
+
+    private struct RideApiMetrics
+    {
         public float currentSpeedKmh;
         public float cadenceRpm;
         public float heartRateBpm;
         public float powerWatts;
-        public int currentGear;
         public float distanceKm;
         public float caloriesKcal;
         public float rideTimeSeconds;
         public float averageSpeedKmh;
         public float maxSpeedKmh;
         public float progressPercent;
+
+        public static RideApiMetrics FromRide(RideApiRecord ride, SensorDataRecord latestSensor, float targetDistanceKm)
+        {
+            float distanceKm = Mathf.Max(0f, ride.distance);
+            float maxSpeedKmh = Mathf.Max(ride.MaxSensorSpeed(), latestSensor != null ? latestSensor.speed : 0f);
+            float durationSeconds = ParseDurationSeconds(ride.duration);
+
+            if (durationSeconds <= 0f)
+                durationSeconds = ParseElapsedSeconds(ride.start_time, ride.end_time);
+
+            float averageSpeed = ride.avg_speed > 0f
+                ? ride.avg_speed
+                : durationSeconds > 0f ? distanceKm / (durationSeconds / 3600f) : 0f;
+
+            return new RideApiMetrics
+            {
+                currentSpeedKmh = latestSensor != null ? Mathf.Max(0f, latestSensor.speed) : 0f,
+                cadenceRpm = latestSensor != null ? Mathf.Max(0f, latestSensor.cadence) : 0f,
+                heartRateBpm = latestSensor != null ? Mathf.Max(0f, latestSensor.HeartRateBpm) : 0f,
+                powerWatts = latestSensor != null ? Mathf.Max(0f, latestSensor.power) : 0f,
+                distanceKm = distanceKm,
+                caloriesKcal = Mathf.Max(0f, ride.calories),
+                rideTimeSeconds = durationSeconds,
+                averageSpeedKmh = Mathf.Max(0f, averageSpeed),
+                maxSpeedKmh = Mathf.Max(0f, maxSpeedKmh),
+                progressPercent = targetDistanceKm <= 0f ? 0f : Mathf.Clamp01(distanceKm / targetDistanceKm) * 100f
+            };
+        }
     }
+
+    private static DateTime ParseDateTime(string value)
+    {
+        DateTime parsed;
+        return DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out parsed)
+            ? parsed
+            : DateTime.MinValue;
+    }
+
+    private static float ParseDurationSeconds(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return 0f;
+
+        TimeSpan duration;
+        return TimeSpan.TryParse(value, CultureInfo.InvariantCulture, out duration)
+            ? (float)duration.TotalSeconds
+            : 0f;
+    }
+
+    private static float ParseElapsedSeconds(string startTime, string endTime)
+    {
+        DateTime start = ParseDateTime(startTime);
+        DateTime end = ParseDateTime(endTime);
+
+        if (start == DateTime.MinValue || end == DateTime.MinValue || end <= start)
+            return 0f;
+
+        return (float)(end - start).TotalSeconds;
+    }
+
 }
